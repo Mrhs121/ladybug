@@ -38,17 +38,13 @@ The database was formerly known as [Kuzu](https://github.com/kuzudb/kuzu).
 
 ## Installation
 
-> [!WARNING]
-> Many of these binary installation methods are not functional yet. We need to work through package names, availability and convention issues.
-> For now, use the build from source method.
-
 | Language | Installation                                                           |
 | -------- |------------------------------------------------------------------------|
 | Python   | `pip install real_ladybug`                                                     |
 | NodeJS   | `npm install lbug`                                                     |
 | Rust     | `cargo add lbug`                                                       |
-| Go       | `go get github.com/lbugdb/go-lbug`                                     |
-| Swift    | [lbug-swift](https://github.com/lbugdb/lbug-swift)                     |
+| Go       | `go get github.com/lbugdb/go-ladybug`                                     |
+| Swift    | [lbug-swift](https://github.com/lbugdb/swift-ladybug)                     |
 | Java     | [Maven Central](https://central.sonatype.com/artifact/com.ladybugdb/lbug) |
 | C/C++    | [precompiled binaries](https://github.com/LadybugDB/ladybug/releases/latest) |
 | CLI      | [precompiled binaries](https://github.com/LadybugDB/ladybug/releases/latest) |
