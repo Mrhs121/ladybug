@@ -423,7 +423,7 @@ add_subdirectory(third_party)
 
 add_definitions(-DLBUG_ROOT_DIRECTORY="${PROJECT_SOURCE_DIR}")
 add_definitions(-DLBUG_CMAKE_VERSION="${CMAKE_PROJECT_VERSION}")
-add_definitions(-DLBUG_EXTENSION_VERSION="0.12.0")
+add_definitions(-DLBUG_EXTENSION_VERSION="0.13.0")
 
 if(BUILD_LBUG)
 include_directories(
