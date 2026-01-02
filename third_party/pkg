@@ -1,0 +1,422 @@
+#!/usr/bin/env python3
+"""
+FreeBSD-style ports system for third-party libraries.
+
+Usage:
+    ./pkg <package> [target]
+    ./pkg <package> fetch   - Download release tarball
+    ./pkg <package> extract - Extract sources
+    ./pkg <package> patch   - Apply patches
+    ./pkg <package> build   - Build (e.g., run amalgamation)
+    ./pkg <package> install - Install to destdir
+    ./pkg <package> update  - Update to latest version
+    ./pkg all               - Fetch, extract, patch, build, install all
+"""
+
+import os
+import sys
+import re
+import shutil
+import subprocess
+import tempfile
+import urllib.request
+from pathlib import Path
+from dataclasses import dataclass
+from typing import Optional
+
+
+SCRIPT_DIR = Path(__file__).parent
+PORTS_DIR = SCRIPT_DIR / 'ports'
+VERSIONS_FILE = SCRIPT_DIR / 'versions.txt'
+DISTDIR = SCRIPT_DIR / 'distfiles'
+
+
+@dataclass
+class Port:
+    name: str
+    version: str
+    url: str
+    extract_dir: str
+    patch_dir: str
+    configure_args: str
+    build_commands: str
+    install_commands: str
+
+
+def read_versions() -> dict:
+    """Read installed versions."""
+    versions = {}
+    if VERSIONS_FILE.exists():
+        with open(VERSIONS_FILE, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if '=' in line:
+                    name, version = line.split('=', 1)
+                    versions[name.strip()] = version.strip()
+    return versions
+
+
+def write_versions(versions: dict):
+    """Write installed versions."""
+    with open(VERSIONS_FILE, 'w') as f:
+        for name in sorted(versions.keys()):
+            f.write(f"{name}={versions[name]}\n")
+
+
+def load_port(port_name: str) -> Optional[Port]:
+    """Load a port's Makefile."""
+    makefile_path = PORTS_DIR / port_name / 'Makefile'
+
+    if not makefile_path.exists():
+        print(f"Error: Port '{port_name}' not found at {makefile_path}")
+        return None
+
+    variables = {}
+    with open(makefile_path, 'r') as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            if '=' in line:
+                key, value = line.split('=', 1)
+                variables[key.strip()] = value.strip().strip('"')
+
+    port = Port(
+        name=port_name,
+        version=variables.get('VERSION', ''),
+        url=variables.get('DISTURL', ''),
+        extract_dir=variables.get('SRCDIR', variables.get('DISTNAME', '') + '-' + variables.get('VERSION', '')),
+        patch_dir=variables.get('PATCHDIR', f'patches'),
+        configure_args=variables.get('CONFIGURE_ARGS', ''),
+        build_commands=variables.get('BUILD_COMMANDS', ''),
+        install_commands=variables.get('INSTALL_COMMANDS', ''),
+    )
+
+    port.url = expand_variables(port.url, variables)
+    port.extract_dir = expand_variables(port.extract_dir, variables)
+    port.build_commands = expand_variables(port.build_commands, variables)
+
+    return port
+
+
+def expand_variables(text: str, variables: dict) -> str:
+    """Expand Makefile-style variables like ${VAR} in text."""
+    if not text:
+        return text
+    for key, value in variables.items():
+        text = text.replace(f'${{{key}}}', value)
+        text = text.replace(f'$({key})', value)
+    return text
+
+
+def ensure_distdir():
+    """Ensure distfiles directory exists."""
+    DISTDIR.mkdir(parents=True, exist_ok=True)
+
+
+def download_distfile(port: Port) -> bool:
+    """Download the distribution file."""
+    ensure_distdir()
+
+    distname = f"{port.name}-{port.version}"
+    ext = '.tar.gz'
+    if '.tar.gz' in port.url:
+        ext = '.tar.gz'
+    elif '.tar.xz' in port.url:
+        ext = '.tar.xz'
+    elif '.zip' in port.url:
+        ext = '.zip'
+
+    distfile = DISTDIR / f"{distname}{ext}"
+
+    if distfile.exists():
+        print(f"  Already downloaded: {distfile.name}")
+        return True
+
+    print(f"  Downloading {port.url}...")
+    try:
+        urllib.request.urlretrieve(port.url, distfile)
+        return True
+    except Exception as e:
+        print(f"  Error downloading: {e}")
+        return False
+
+
+def extract_distfile(port: Port) -> bool:
+    """Extract the distribution file."""
+    distname = f"{port.name}-{port.version}"
+    ext = '.tar.gz'
+    if '.tar.xz' in port.url:
+        ext = '.tar.xz'
+    elif '.zip' in port.url:
+        ext = '.zip'
+
+    distfile = DISTDIR / f"{distname}{ext}"
+    workdir = SCRIPT_DIR / 'work' / port.name
+
+    if (workdir / port.extract_dir).exists():
+        print(f"  Already extracted: {port.extract_dir}")
+        return True
+
+    print(f"  Extracting {distfile.name}...")
+    workdir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        if ext == '.tar.gz':
+            subprocess.run(['tar', '-xzf', str(distfile), '-C', str(workdir)], check=True)
+        elif ext == '.tar.xz':
+            subprocess.run(['tar', '-xJf', str(distfile), '-C', str(workdir)], check=True)
+        elif ext == '.zip':
+            subprocess.run(['unzip', '-q', str(distfile), '-d', str(workdir)], check=True)
+        return True
+    except Exception as e:
+        print(f"  Error extracting: {e}")
+        return False
+
+
+def apply_patches(port: Port) -> bool:
+    """Apply patches from the port's patch directory."""
+    patchdir = PORTS_DIR / port.name / port.patch_dir
+    workdir = SCRIPT_DIR / 'work' / port.name
+
+    if not patchdir.exists():
+        return True
+
+    print(f"  Applying patches from {patchdir}...")
+    srcdir = workdir / port.extract_dir
+
+    for patchfile in sorted(patchdir.glob('*.patch')):
+        print(f"    Applying {patchfile.name}...")
+        result = subprocess.run(
+            ['patch', '-p1'],
+            cwd=str(srcdir),
+            input=patchfile.read_text(),
+            capture_output=True,
+            text=True
+        )
+        if result.returncode != 0:
+            print(f"    Patch failed: {result.stderr}")
+            return False
+
+    return True
+
+
+def run_build(port: Port) -> bool:
+    """Run build commands for the port."""
+    workdir = SCRIPT_DIR / 'work' / port.name
+    srcdir = workdir / port.extract_dir
+
+    if not port.build_commands:
+        return True
+
+    print(f"  Running build commands...")
+    for cmd in port.build_commands.split('&&'):
+        cmd = cmd.strip()
+        if not cmd:
+            continue
+        print(f"    {cmd}")
+        result = subprocess.run(
+            cmd,
+            cwd=str(srcdir),
+            shell=True,
+            capture_output=True,
+            text=True
+        )
+        if result.returncode != 0:
+            print(f"    Build failed: {result.stderr}")
+            return False
+
+    return True
+
+
+def sync_files(port: Port) -> bool:
+    """Sync generated files to third-party directory."""
+    third_party_dir = SCRIPT_DIR / port.name
+    workdir = SCRIPT_DIR / 'work' / port.name
+    srcdir = workdir / port.extract_dir
+
+    if not third_party_dir.exists():
+        print(f"  Error: Third-party directory {third_party_dir} does not exist")
+        return False
+
+    existing_files = get_existing_files(third_party_dir)
+
+    print(f"  Syncing {len(existing_files)} files...")
+
+    for rel_path in sorted(existing_files):
+        src_file = find_file_in_repo(srcdir, rel_path)
+
+        if src_file and src_file.exists():
+            dst_file = third_party_dir / rel_path
+            dst_file.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src_file, dst_file)
+            print(f"    Updated: {rel_path}")
+        else:
+            print(f"    Warning: {rel_path} not found in source")
+
+    return True
+
+
+def get_existing_files(dest_path: Path) -> set:
+    """Get all files currently in the third-party directory."""
+    files = set()
+    if not dest_path.exists():
+        return files
+
+    for root, dirs, filenames in os.walk(dest_path):
+        for filename in filenames:
+            rel_path = Path(root).relative_to(dest_path) / filename
+            if rel_path.parts:
+                files.add(str(rel_path))
+
+    return files
+
+
+def find_file_in_repo(repo_path: Path, rel_path: str) -> Path:
+    """Find a file in the repo by searching common directories."""
+    filename = Path(rel_path).name
+
+    search_paths = [
+        repo_path / rel_path,
+        repo_path / filename,
+    ]
+
+    for base_dir in ['include', 'src', 'cpp']:
+        base_path = repo_path / base_dir
+        if base_path.exists():
+            for match in base_path.rglob(filename):
+                search_paths.append(match)
+
+    for path in search_paths:
+        if path.exists():
+            return path
+
+    return search_paths[0]
+
+
+def do_update(port_name: str) -> bool:
+    """Update a package to the latest version."""
+    port = load_port(port_name)
+    if not port:
+        return False
+
+    print(f"Updating {port_name} to version {port.version}")
+    print("-" * 60)
+
+    success = (
+        download_distfile(port) and
+        extract_distfile(port) and
+        apply_patches(port) and
+        run_build(port) and
+        sync_files(port)
+    )
+
+    if success:
+        versions = read_versions()
+        versions[port_name] = port.version
+        write_versions(versions)
+        print(f"\nSuccessfully updated {port_name} to {port.version}")
+    else:
+        print(f"\nFailed to update {port_name}")
+
+    return success
+
+
+def do_fetch(port_name: str) -> bool:
+    """Fetch a package."""
+    port = load_port(port_name)
+    if not port:
+        return False
+
+    print(f"Fetching {port_name} {port.version}")
+    return download_distfile(port)
+
+
+def do_extract(port_name: str) -> bool:
+    """Extract a package."""
+    port = load_port(port_name)
+    if not port:
+        return False
+
+    print(f"Extracting {port_name}")
+    return download_distfile(port) and extract_distfile(port)
+
+
+def do_build(port_name: str) -> bool:
+    """Build a package."""
+    port = load_port(port_name)
+    if not port:
+        return False
+
+    print(f"Building {port_name}")
+    return run_build(port)
+
+
+def do_install(port_name: str) -> bool:
+    """Install (sync files) for a package."""
+    port = load_port(port_name)
+    if not port:
+        return False
+
+    print(f"Installing {port_name}")
+    return sync_files(port)
+
+
+def main():
+    if len(sys.argv) < 2:
+        print(__doc__)
+        print("\nAvailable ports:")
+        if PORTS_DIR.exists():
+            for port_dir in sorted(PORTS_DIR.iterdir()):
+                if port_dir.is_dir() and (port_dir / 'Makefile').exists():
+                    print(f"  {port_dir.name}")
+        sys.exit(1)
+
+    target = sys.argv[2] if len(sys.argv) > 2 else None
+    port_name = sys.argv[1]
+
+    if port_name == 'all':
+        ports = []
+        if PORTS_DIR.exists():
+            for port_dir in sorted(PORTS_DIR.iterdir()):
+                if port_dir.is_dir() and (port_dir / 'Makefile').exists():
+                    ports.append(port_dir.name)
+
+        for p in ports:
+            if target:
+                if target == 'fetch':
+                    do_fetch(p)
+                elif target == 'extract':
+                    do_extract(p)
+                elif target == 'build':
+                    do_build(p)
+                elif target == 'install':
+                    do_install(p)
+                elif target == 'update':
+                    do_update(p)
+            else:
+                do_update(p)
+        return
+
+    if target == 'fetch':
+        success = do_fetch(port_name)
+    elif target == 'extract':
+        success = do_extract(port_name)
+    elif target == 'patch':
+        port = load_port(port_name)
+        success = port and apply_patches(port)
+    elif target == 'build':
+        success = do_build(port_name)
+    elif target == 'install':
+        success = do_install(port_name)
+    elif target == 'update' or target is None:
+        success = do_update(port_name)
+    else:
+        print(f"Unknown target: {target}")
+        success = False
+
+    sys.exit(0 if success else 1)
+
+
+if __name__ == '__main__':
+    main()
