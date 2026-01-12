@@ -5,6 +5,7 @@
 #include "common/enums/extend_direction_util.h"
 #include "common/exception/binder.h"
 #include "common/utils.h"
+#include <format>
 
 using namespace lbug::common;
 
@@ -64,7 +65,7 @@ std::vector<ExtendDirection> RelExpression::getExtendDirections() const {
         }
     }
     if (ret.empty()) {
-        throw BinderException(stringFormat(
+        throw BinderException(std::format(
             "There are no common storage directions among the rel "
             "tables matched by pattern '{}' (some tables have storage direction 'fwd' "
             "while others have storage direction 'bwd'). Scanning different tables matching the "

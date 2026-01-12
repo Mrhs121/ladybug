@@ -7,13 +7,13 @@
 
 #include "catalog/catalog.h"
 #include "catalog/catalog_entry/table_catalog_entry.h"
-#include "common/string_format.h"
 #include "gtest/gtest.h"
 #include "main/connection.h"
 #include "processor/result/flat_tuple.h"
 #include "storage/checkpointer.h"
 #include "storage/storage_manager.h"
 #include "transaction/transaction_context.h"
+#include <format>
 
 namespace lbug::testing {
 
@@ -61,11 +61,9 @@ void FSMLeakChecker::checkForLeakedPages(main::Connection* conn) {
     for (auto& [tableName, indexName, indexType] : indexes) {
         std::string dropQuery;
         if (indexType == "FTS") {
-            dropQuery =
-                common::stringFormat("CALL DROP_FTS_INDEX('{}', '{}');", tableName, indexName);
+            dropQuery = std::format("CALL DROP_FTS_INDEX('{}', '{}');", tableName, indexName);
         } else if (indexType == "HNSW") {
-            dropQuery =
-                common::stringFormat("CALL DROP_VECTOR_INDEX('{}', '{}');", tableName, indexName);
+            dropQuery = std::format("CALL DROP_VECTOR_INDEX('{}', '{}');", tableName, indexName);
         } else {
             EXPECT_TRUE(false) << "Unknown index type: " << indexType << " (table=" << tableName
                                << ", index=" << indexName << ")" << std::endl;
@@ -92,13 +90,13 @@ void FSMLeakChecker::checkForLeakedPages(main::Connection* conn) {
     // Drop rel tables first
     for (const auto& [name, type] : tableNames) {
         if (type == common::TableTypeUtils::toString(common::TableType::REL)) {
-            ASSERT_TRUE(conn->query(common::stringFormat("drop table `{}`", name))->isSuccess());
+            ASSERT_TRUE(conn->query(std::format("drop table `{}`", name))->isSuccess());
         }
     }
     // Then non-rel
     for (const auto& [name, type] : tableNames) {
         if (type != common::TableTypeUtils::toString(common::TableType::REL)) {
-            ASSERT_TRUE(conn->query(common::stringFormat("drop table `{}`", name))->isSuccess());
+            ASSERT_TRUE(conn->query(std::format("drop table `{}`", name))->isSuccess());
         }
     }
 

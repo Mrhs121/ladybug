@@ -15,6 +15,7 @@
 #include "main/client_context.h"
 #include "processor/execution_context.h"
 #include "storage/buffer_manager/memory_manager.h"
+#include <format>
 
 using namespace lbug::common;
 using namespace lbug::transaction;
@@ -78,10 +79,10 @@ static void writeCopyNodeStatement(stringstream& ss, const TableCatalogEntry* en
     }
     auto copyOptionsCypher = CSVOption::toCypher(csvConfig.option.toOptionsMap(useParallelReader));
     if (columns.empty()) {
-        ss << stringFormat("COPY `{}` FROM \"{}\" {};\n", entry->getName(), fileName,
+        ss << std::format("COPY `{}` FROM \"{}\" {};\n", entry->getName(), fileName,
             copyOptionsCypher);
     } else {
-        ss << stringFormat("COPY `{}` ({}) FROM \"{}\" {};\n", entry->getName(), columns, fileName,
+        ss << std::format("COPY `{}` ({}) FROM \"{}\" {};\n", entry->getName(), columns, fileName,
             copyOptionsCypher);
     }
 }
@@ -99,21 +100,21 @@ static void writeCopyRelStatement(stringstream& ss, const ClientContext* context
         auto toTableName =
             catalog->getTableCatalogEntry(transaction, entryInfo.nodePair.dstTableID)->getName();
         // TODO(Ziyi): We should pass fileName from binder phase to here.
-        auto fileName = stringFormat("{}_{}_{}.{}", entry->getName(), fromTableName, toTableName,
+        auto fileName = std::format("{}_{}_{}.{}", entry->getName(), fromTableName, toTableName,
             StringUtils::getLower(info->fileTypeInfo.fileTypeStr));
         bool useParallelReader = true;
         if (canUseParallelReader.contains(fileName)) {
             useParallelReader = canUseParallelReader.at(fileName)->load();
         }
         auto copyOptionsMap = csvConfig.option.toOptionsMap(useParallelReader);
-        copyOptionsMap["from"] = stringFormat("'{}'", fromTableName);
-        copyOptionsMap["to"] = stringFormat("'{}'", toTableName);
+        copyOptionsMap["from"] = std::format("'{}'", fromTableName);
+        copyOptionsMap["to"] = std::format("'{}'", toTableName);
         auto copyOptions = CSVOption::toCypher(copyOptionsMap);
         if (columns.empty()) {
-            ss << stringFormat("COPY `{}` FROM \"{}\" {};\n", entry->getName(), fileName,
+            ss << std::format("COPY `{}` FROM \"{}\" {};\n", entry->getName(), fileName,
                 copyOptions);
         } else {
-            ss << stringFormat("COPY `{}` ({}) FROM \"{}\" {};\n", entry->getName(), columns,
+            ss << std::format("COPY `{}` ({}) FROM \"{}\" {};\n", entry->getName(), columns,
                 fileName, copyOptions);
         }
     }

@@ -7,6 +7,7 @@
 #include "common/exception/binder.h"
 #include "parser/expression/parsed_property_expression.h"
 #include "parser/query/return_with_clause/with_clause.h"
+#include <format>
 
 using namespace lbug::common;
 using namespace lbug::parser;
@@ -178,7 +179,7 @@ static void validateNestedAggregate(const Expression& expr, const BinderScope& s
     for (auto& childAgg : collector.exprs) {
         if (!scope.contains(childAgg->getAlias())) {
             throw BinderException(
-                stringFormat("Expression {} contains nested aggregation.", expr.toString()));
+                std::format("Expression {} contains nested aggregation.", expr.toString()));
         }
     }
 }
@@ -286,7 +287,7 @@ expression_vector Binder::bindOrderByExpressions(
     for (auto& parsedExpr : parsedExprs) {
         auto expr = expressionBinder.bindExpression(*parsedExpr);
         if (!isOrderByKeyTypeSupported(expr->dataType)) {
-            throw BinderException(stringFormat("Cannot order by {}. Order by {} is not supported.",
+            throw BinderException(std::format("Cannot order by {}. Order by {} is not supported.",
                 expr->toString(), expr->dataType.toString()));
         }
         exprs.push_back(std::move(expr));

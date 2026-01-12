@@ -2,6 +2,7 @@
 #include "common/type_utils.h"
 #include "function/list/vector_list_functions.h"
 #include "function/scalar_function.h"
+#include <format>
 
 using namespace lbug::common;
 
@@ -19,7 +20,7 @@ static std::unique_ptr<FunctionBindData> bindFuncListAggr(const ScalarBindFuncIn
                 ScalarFunction::UnaryExecNestedTypeFunction<list_entry_t, T, OPERATION>;
         },
         [&input, &resultType](auto) {
-            throw BinderException(stringFormat("Unsupported inner data type for {}: {}",
+            throw BinderException(std::format("Unsupported inner data type for {}: {}",
                 input.definition->name, LogicalTypeUtils::toString(resultType.getLogicalTypeID())));
         });
     return FunctionBindData::getSimpleBindData(input.arguments, resultType);

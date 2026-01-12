@@ -4,9 +4,9 @@
 #include "binder/expression_binder.h"
 #include "common/cast.h"
 #include "common/exception/binder.h"
-#include "common/string_format.h"
 #include "function/struct/vector_struct_functions.h"
 #include "parser/expression/parsed_property_expression.h"
+#include <format>
 
 using namespace lbug::common;
 using namespace lbug::parser;
@@ -33,7 +33,7 @@ expression_vector ExpressionBinder::bindPropertyStarExpression(
     } else if (isStructPattern(*child)) {
         return bindStructPropertyStarExpression(child);
     } else {
-        throw BinderException(stringFormat("Cannot bind property for expression {} with type {}.",
+        throw BinderException(std::format("Cannot bind property for expression {} with type {}.",
             child->toString(), ExpressionTypeUtil::toString(child->expressionType)));
     }
 }
@@ -64,7 +64,7 @@ std::shared_ptr<Expression> ExpressionBinder::bindPropertyExpression(
     const ParsedExpression& parsedExpression) {
     auto& propertyExpression = parsedExpression.constCast<ParsedPropertyExpression>();
     if (propertyExpression.isStar()) {
-        throw BinderException(stringFormat("Cannot bind {} as a single property expression.",
+        throw BinderException(std::format("Cannot bind {} as a single property expression.",
             parsedExpression.toString()));
     }
     auto propertyName = propertyExpression.getPropertyName();
@@ -90,7 +90,7 @@ std::shared_ptr<Expression> ExpressionBinder::bindPropertyExpression(
     } else if (child->getDataType().getLogicalTypeID() == LogicalTypeID::ANY) {
         return createVariableExpression(LogicalType::ANY(), binder->getUniqueExpressionName(""));
     } else {
-        throw BinderException(stringFormat("Cannot bind property for expression {} with type {}.",
+        throw BinderException(std::format("Cannot bind property for expression {} with type {}.",
             child->toString(), ExpressionTypeUtil::toString(child->expressionType)));
     }
 }

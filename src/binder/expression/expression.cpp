@@ -1,6 +1,7 @@
 #include "binder/expression/expression.h"
 
 #include "common/exception/binder.h"
+#include <format>
 
 using namespace lbug::common;
 
@@ -12,7 +13,7 @@ Expression::~Expression() = default;
 void Expression::cast(const LogicalType&) {
     // LCOV_EXCL_START
     throw BinderException(
-        stringFormat("Data type of expression {} should not be modified.", toString()));
+        std::format("Data type of expression {} should not be modified.", toString()));
     // LCOV_EXCL_STOP
 }
 

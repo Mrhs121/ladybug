@@ -4,9 +4,9 @@
 
 #include "common/assert.h"
 #include "common/exception/conversion.h"
-#include "common/string_format.h"
 #include "common/types/cast_helpers.h"
 #include "common/types/date_t.h"
+#include <format>
 
 namespace lbug {
 namespace common {
@@ -163,8 +163,8 @@ dtime_t Time::fromCString(const char* buf, uint64_t len) {
     dtime_t result;
     uint64_t pos = 0;
     if (!Time::tryConvertTime(buf, len, pos, result)) {
-        throw ConversionException(stringFormat("Error occurred during parsing time. Given: \"{}\". "
-                                               "Expected format: (hh:mm:ss[.zzzzzz]).",
+        throw ConversionException(std::format("Error occurred during parsing time. Given: \"{}\". "
+                                              "Expected format: (hh:mm:ss[.zzzzzz]).",
             std::string(buf, len)));
     }
     return result;
@@ -200,8 +200,8 @@ dtime_t Time::fromTimeInternal(int32_t hour, int32_t minute, int32_t second, int
 
 dtime_t Time::fromTime(int32_t hour, int32_t minute, int32_t second, int32_t microseconds) {
     if (!Time::isValid(hour, minute, second, microseconds)) {
-        throw ConversionException(stringFormat("Time field value out of range: {}:{}:{}[.{}].",
-            hour, minute, second, microseconds));
+        throw ConversionException(std::format("Time field value out of range: {}:{}:{}[.{}].", hour,
+            minute, second, microseconds));
     }
     return Time::fromTimeInternal(hour, minute, second, microseconds);
 }

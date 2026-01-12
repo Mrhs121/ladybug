@@ -2,6 +2,7 @@
 
 #include "common/exception/runtime.h"
 #include "common/vector/value_vector.h"
+#include <format>
 
 namespace lbug {
 namespace common {
@@ -97,7 +98,7 @@ std::string TypeUtils::entryToString(const LogicalType& dataType, const uint8_t*
         return TypeUtils::relToString(*reinterpret_cast<const struct_entry_t*>(value), valueVector);
     default:
         throw common::RuntimeException{
-            common::stringFormat("Unsupported type: {} to string.", dataType.toString())};
+            std::format("Unsupported type: {} to string.", dataType.toString())};
     }
 }
 

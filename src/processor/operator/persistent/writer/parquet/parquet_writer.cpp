@@ -8,6 +8,7 @@
 #include "main/client_context.h"
 #include "protocol/TCompactProtocol.h"
 #include "storage/buffer_manager/memory_manager.h"
+#include <format>
 
 namespace lbug {
 namespace processor {
@@ -87,7 +88,7 @@ Type::type ParquetWriter::convertToParquetType(const LogicalType& type) {
         return Type::FIXED_LEN_BYTE_ARRAY;
     default:
         throw RuntimeException{
-            stringFormat("Writing a column with type: {} to parquet is not supported.",
+            std::format("Writing a column with type: {} to parquet is not supported.",
                 LogicalTypeUtils::toString(type.getLogicalTypeID()))};
     }
 }

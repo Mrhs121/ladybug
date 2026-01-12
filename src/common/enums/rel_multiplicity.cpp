@@ -2,8 +2,8 @@
 
 #include "common/assert.h"
 #include "common/exception/binder.h"
-#include "common/string_format.h"
 #include "common/string_utils.h"
+#include <format>
 
 namespace lbug {
 namespace common {
@@ -15,7 +15,7 @@ RelMultiplicity RelMultiplicityUtils::getFwd(const std::string& str) {
     } else if ("MANY_ONE" == normStr || "MANY_MANY" == normStr) {
         return RelMultiplicity::MANY;
     }
-    throw BinderException(stringFormat("Cannot bind {} as relationship multiplicity.", str));
+    throw BinderException(std::format("Cannot bind {} as relationship multiplicity.", str));
 }
 
 RelMultiplicity RelMultiplicityUtils::getBwd(const std::string& str) {
@@ -25,7 +25,7 @@ RelMultiplicity RelMultiplicityUtils::getBwd(const std::string& str) {
     } else if ("ONE_MANY" == normStr || "MANY_MANY" == normStr) {
         return RelMultiplicity::MANY;
     }
-    throw BinderException(stringFormat("Cannot bind {} as relationship multiplicity.", str));
+    throw BinderException(std::format("Cannot bind {} as relationship multiplicity.", str));
 }
 
 std::string RelMultiplicityUtils::toString(RelMultiplicity multiplicity) {

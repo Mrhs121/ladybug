@@ -7,6 +7,7 @@
 #include "graph/graph_entry_set.h"
 #include "parser/parser.h"
 #include "processor/execution_context.h"
+#include <format>
 
 using namespace lbug::binder;
 using namespace lbug::common;
@@ -67,7 +68,7 @@ static std::vector<ParsedNativeGraphTableInfo> extractGraphEntryTableInfos(const
     } break;
     default:
         throw BinderException(
-            stringFormat("Argument {} has data type {}. LIST or STRUCT was expected.",
+            std::format("Argument {} has data type {}. LIST or STRUCT was expected.",
                 value.toString(), value.getDataType().toString()));
     }
     return infos;

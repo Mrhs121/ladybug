@@ -13,6 +13,7 @@
 #include "common/vector/value_vector.h"
 #include "function/hash/hash_functions.h"
 #include "storage/storage_utils.h"
+#include <format>
 
 namespace lbug {
 namespace common {
@@ -928,7 +929,7 @@ void Value::validateType(LogicalTypeID targetTypeID) const {
     if (dataType.getLogicalTypeID() == targetTypeID) {
         return;
     }
-    throw BinderException(stringFormat("{} has data type {} but {} was expected.", toString(),
+    throw BinderException(std::format("{} has data type {} but {} was expected.", toString(),
         dataType.toString(), LogicalTypeUtils::toString(targetTypeID)));
 }
 

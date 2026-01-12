@@ -5,6 +5,7 @@
 #include "parser/expression/parsed_function_expression.h"
 #include "parser/query/reading_clause/in_query_call_clause.h"
 #include "transaction/transaction.h"
+#include <format>
 
 using namespace lbug::common;
 using namespace lbug::catalog;
@@ -32,7 +33,7 @@ std::unique_ptr<BoundReadingClause> Binder::bindInQueryCall(const ReadingClause&
     } break;
     default:
         throw BinderException(
-            stringFormat("{} is not a table or algorithm function.", functionName));
+            std::format("{} is not a table or algorithm function.", functionName));
     }
     if (call.hasWherePredicate()) {
         auto wherePredicate = bindWhereExpression(*call.getWherePredicate());

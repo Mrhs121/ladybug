@@ -2,6 +2,7 @@
 #include "binder/query/reading_clause/bound_match_clause.h"
 #include "common/exception/binder.h"
 #include "parser/query/reading_clause/match_clause.h"
+#include <format>
 
 using namespace lbug::common;
 using namespace lbug::parser;
@@ -29,7 +30,7 @@ static void validateHintCompleteness(const BoundJoinHintNode& root, const QueryG
         }
         if (!set.contains(nodeOrRel)) {
             throw BinderException(
-                stringFormat("Cannot find {} in join hint.", nodeOrRel->toString()));
+                std::format("Cannot find {} in join hint.", nodeOrRel->toString()));
         }
     }
 }
@@ -68,7 +69,7 @@ std::shared_ptr<BoundJoinHintNode> Binder::bindJoinNode(const JoinHintNode& join
             pattern = scope.getExpression(joinHintNode.variableName);
         }
         if (pattern == nullptr || pattern->expressionType != ExpressionType::PATTERN) {
-            throw BinderException(stringFormat("Cannot bind {} to a node or relationship pattern",
+            throw BinderException(std::format("Cannot bind {} to a node or relationship pattern",
                 joinHintNode.variableName));
         }
         return std::make_shared<BoundJoinHintNode>(std::move(pattern));

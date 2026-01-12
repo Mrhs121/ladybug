@@ -2,6 +2,7 @@
 #include "common/exception/binder.h"
 #include "function/rewrite_function.h"
 #include "function/schema/vector_node_rel_functions.h"
+#include <format>
 
 using namespace lbug::common;
 using namespace lbug::binder;
@@ -16,7 +17,7 @@ static std::shared_ptr<Expression> rewriteFunc(const RewriteFunctionBindInput& i
     auto recursiveInfo = param->ptrCast<RelExpression>()->getRecursiveInfo();
     if (recursiveInfo->bindData->weightOutputExpr == nullptr) {
         throw BinderException(
-            stringFormat("Cost function is not defined for {}", param->toString()));
+            std::format("Cost function is not defined for {}", param->toString()));
     }
     return recursiveInfo->bindData->weightOutputExpr;
 }

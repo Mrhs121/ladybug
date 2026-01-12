@@ -8,6 +8,7 @@
 #include "common/types/value/value.h"
 #include "processor/result/flat_tuple.h"
 #include "storage/storage_utils.h"
+#include <format>
 
 namespace lbug {
 namespace common {
@@ -240,7 +241,7 @@ static void resizeVector(ArrowVector* vector, const LogicalType& type, std::int6
     default: {
         // LCOV_EXCL_START
         throw common::RuntimeException{
-            common::stringFormat("Unsupported type: {} for arrow conversion.", type.toString())};
+            std::format("Unsupported type: {} for arrow conversion.", type.toString())};
         // LCOV_EXCL_STOP
     }
     }
@@ -378,7 +379,7 @@ void ArrowRowBatch::templateCopyNonNullValue<LogicalTypeID::MAP>(ArrowVector* ve
     for (auto i = 0u; i < value.childrenSize; ++i) {
         if (value.children[i]->children[0]->isNull()) {
             throw RuntimeException{
-                stringFormat("Cannot convert map with null key to Arrow: {}", value.toString())};
+                std::format("Cannot convert map with null key to Arrow: {}", value.toString())};
         }
     }
     return templateCopyNonNullValue<LogicalTypeID::LIST>(vector, value, pos,

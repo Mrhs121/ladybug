@@ -5,6 +5,7 @@
 #include "common/exception/binder.h"
 #include "parser/query/reading_clause/load_from.h"
 #include "parser/scan_source.h"
+#include <format>
 
 using namespace lbug::function;
 using namespace lbug::common;
@@ -45,7 +46,7 @@ std::unique_ptr<BoundReadingClause> Binder::bindLoadFrom(const ReadingClause& re
         boundLoadFrom = std::make_unique<BoundLoadFrom>(scanInfo.copy());
     } break;
     default:
-        throw BinderException(stringFormat("LOAD FROM subquery is not supported."));
+        throw BinderException(std::format("LOAD FROM subquery is not supported."));
     }
     if (!columnTypes.empty()) {
         auto info = boundLoadFrom->getInfo();

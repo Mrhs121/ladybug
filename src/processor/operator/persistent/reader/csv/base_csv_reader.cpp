@@ -3,7 +3,6 @@
 #include <vector>
 
 #include "common/file_system/virtual_file_system.h"
-#include "common/string_format.h"
 #include "common/string_utils.h"
 #include "common/system_message.h"
 #include "common/utils.h"
@@ -11,6 +10,7 @@
 #include "processor/operator/persistent/reader/csv/driver.h"
 #include "processor/operator/persistent/reader/file_error_handler.h"
 #include "utf8proc_wrapper.h"
+#include <format>
 
 using namespace lbug::common;
 
@@ -181,7 +181,7 @@ bool BaseCSVReader::readBuffer(uint64_t* start) {
     if (readCount == -1) {
         // LCOV_EXCL_START
         lineContext.setEndOfLine(getFileOffset());
-        handleCopyException(stringFormat("Could not read from file: {}", posixErrMessage()), true);
+        handleCopyException(std::format("Could not read from file: {}", posixErrMessage()), true);
         // LCOV_EXCL_STOP
     }
 

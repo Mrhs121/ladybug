@@ -3,6 +3,7 @@
 #include "binder/ddl/bound_create_table_info.h"
 #include "common/serializer/deserializer.h"
 #include "common/string_utils.h"
+#include <format>
 
 using namespace lbug::binder;
 
@@ -41,7 +42,7 @@ std::unique_ptr<NodeTableCatalogEntry> NodeTableCatalogEntry::deserialize(
 }
 
 std::string NodeTableCatalogEntry::toCypher(const ToCypherInfo& /*info*/) const {
-    return common::stringFormat("CREATE NODE TABLE `{}` ({} PRIMARY KEY(`{}`));", getName(),
+    return std::format("CREATE NODE TABLE `{}` ({} PRIMARY KEY(`{}`));", getName(),
         propertyCollection.toCypher(), primaryKeyName);
 }
 

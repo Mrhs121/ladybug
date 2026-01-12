@@ -1,7 +1,6 @@
 #include "processor/operator/persistent/writer/parquet/column_writer.h"
 
 #include "common/exception/runtime.h"
-#include "common/string_format.h"
 #include "function/cast/functions/numeric_limits.h"
 #include "lz4.hpp"
 #include "miniz_wrapper.hpp"
@@ -15,6 +14,7 @@
 #include "processor/operator/persistent/writer/parquet/uuid_column_writer.h"
 #include "snappy.h"
 #include "zstd.h"
+#include <format>
 
 namespace lbug {
 namespace processor {
@@ -370,7 +370,7 @@ void ColumnWriter::compressPage(common::BufferWriter& bufferedSerializer, size_t
 
     if (compressedSize > uint64_t(function::NumericLimits<int32_t>::maximum())) {
         throw RuntimeException(
-            stringFormat("Parquet writer: {} compressed page size out of range for type integer",
+            std::format("Parquet writer: {} compressed page size out of range for type integer",
                 bufferedSerializer.getSize()));
     }
 }

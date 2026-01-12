@@ -7,6 +7,7 @@
 #include "main/client_context.h"
 #include "storage/storage_manager.h"
 #include "storage/table/node_table.h"
+#include <format>
 
 using namespace lbug::common;
 using namespace lbug::transaction;
@@ -51,7 +52,7 @@ static bool validateNumericalType(const LogicalType& type) {
 }
 
 static std::string getUnsupportedTypeErrMsg(const LogicalType& type) {
-    return stringFormat("Unsupported data type {}.", type.toString());
+    return std::format("Unsupported data type {}.", type.toString());
 }
 
 static uint32_t getElementSize(const LogicalType& type) {
@@ -172,7 +173,7 @@ void StorageDriver::scanColumn(Table* table, column_id_t columnID, const offset_
         }
     } break;
     default:
-        throw RuntimeException(stringFormat("Not supported data type in StorageDriver::scanColumn",
+        throw RuntimeException(std::format("Not supported data type in StorageDriver::scanColumn",
             PhysicalTypeUtils::toString(physicalType)));
     }
 }

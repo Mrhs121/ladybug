@@ -6,6 +6,7 @@
 #include "common/exception/binder.h"
 #include "function/built_in_function_utils.h"
 #include "transaction/transaction.h"
+#include <format>
 
 using namespace lbug::common;
 using namespace lbug::catalog;
@@ -51,7 +52,7 @@ std::shared_ptr<Expression> ExpressionBinder::bindComparisonExpression(
     auto functionName = ExpressionTypeUtil::toString(expressionType);
     LogicalType combinedType(LogicalTypeID::ANY);
     if (!ExpressionUtil::tryCombineDataType(children, combinedType)) {
-        throw BinderException(stringFormat("Type Mismatch: Cannot compare types {} and {}",
+        throw BinderException(std::format("Type Mismatch: Cannot compare types {} and {}",
             children[0]->dataType.toString(), children[1]->dataType.toString()));
     }
     if (combinedType.getLogicalTypeID() == LogicalTypeID::ANY) {

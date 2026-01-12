@@ -7,6 +7,7 @@
 #include "processor/data_pos.h"
 #include "processor/operator/table_function_call.h"
 #include "processor/plan_mapper.h"
+#include <format>
 
 using namespace lbug::common;
 using namespace lbug::planner;
@@ -65,7 +66,7 @@ std::vector<std::string> TableFunction::extractYieldVariables(const std::vector<
         }
         for (auto i = 0u; i < names.size(); i++) {
             if (names[i] != yieldVariables[i].name) {
-                throw BinderException{stringFormat(
+                throw BinderException{std::format(
                     "Unknown table function output variable name: {}.", yieldVariables[i].name)};
             }
             auto variableName =

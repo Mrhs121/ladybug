@@ -4,6 +4,7 @@
 #include "main/client_context.h"
 #include "processor/execution_context.h"
 #include "storage/buffer_manager/memory_manager.h"
+#include <format>
 
 using namespace lbug::common;
 
@@ -19,7 +20,7 @@ std::string LoadExtensionPrintInfo::toString() const {
 void LoadExtension::executeInternal(ExecutionContext* context) {
     auto clientContext = context->clientContext;
     ExtensionManager::Get(*clientContext)->loadExtension(path, clientContext);
-    appendMessage(stringFormat("Extension: {} has been loaded.", path),
+    appendMessage(std::format("Extension: {} has been loaded.", path),
         storage::MemoryManager::Get(*clientContext));
 }
 

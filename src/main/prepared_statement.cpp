@@ -4,6 +4,7 @@
 #include "common/exception/binder.h"
 #include "common/types/value/value.h"
 #include "planner/operator/logical_plan.h" // IWYU pragma: keep
+#include <format>
 
 using namespace lbug::common;
 
@@ -48,7 +49,7 @@ StatementType PreparedStatement::getStatementType() const {
 static void validateParam(const std::string& paramName, Value* newVal, Value* oldVal) {
     if (newVal->getDataType().getLogicalTypeID() == LogicalTypeID::POINTER &&
         newVal->getValue<uint8_t*>() != oldVal->getValue<uint8_t*>()) {
-        throw BinderException(stringFormat(
+        throw BinderException(std::format(
             "When preparing the current statement the dataframe passed into parameter "
             "'{}' was different from the one provided during prepare. Dataframes parameters "
             "are only used during prepare; please make sure that they are either not passed into "

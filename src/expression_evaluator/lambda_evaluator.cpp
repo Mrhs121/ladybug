@@ -8,6 +8,7 @@
 #include "main/client_context.h"
 #include "parser/expression/parsed_lambda_expression.h"
 #include "storage/buffer_manager/memory_manager.h"
+#include <format>
 
 using namespace lbug::common;
 using namespace lbug::processor;
@@ -99,7 +100,7 @@ std::vector<idx_t> ListLambdaEvaluator::getParamIndices() {
         if (it != paramNames.end()) {
             index[i] = it - paramNames.begin();
         } else {
-            throw RuntimeException(stringFormat("Lambda paramName {} cannot found.", paramName));
+            throw RuntimeException(std::format("Lambda paramName {} cannot found.", paramName));
         }
     }
     return index;

@@ -8,6 +8,7 @@
 #include "main/client_context.h"
 #include "main/database.h"
 #include "main/database_manager.h"
+#include <format>
 
 using namespace lbug::common;
 using namespace lbug::catalog;
@@ -105,7 +106,7 @@ static std::unique_ptr<TableFuncBindData> bindFunc(const main::ClientContext* co
             graph->getTableEntries(transaction, context->useInternalCatalogEntry())) {
             tableInfos.emplace_back(entry->getName(), entry->getTableID(),
                 TableTypeUtils::toString(entry->getTableType()),
-                stringFormat("{}(graph)", graphName), entry->getComment());
+                std::format("{}(graph)", graphName), entry->getComment());
         }
     }
 
@@ -117,7 +118,7 @@ static std::unique_ptr<TableFuncBindData> bindFunc(const main::ClientContext* co
                  context->useInternalCatalogEntry())) {
             auto tableInfo = TableInfo{entry->getName(), entry->getTableID(),
                 TableTypeUtils::toString(entry->getTableType()),
-                stringFormat("{}({})", databaseName, databaseType), entry->getComment()};
+                std::format("{}({})", databaseName, databaseType), entry->getComment()};
             tableInfos.push_back(std::move(tableInfo));
         }
     }

@@ -7,6 +7,7 @@
 #include "main/client_context.h"
 #include "main/db_config.h"
 #include "parser/standalone_call.h"
+#include <format>
 
 using namespace lbug::common;
 
@@ -26,7 +27,7 @@ std::unique_ptr<BoundStatement> Binder::bindStandaloneCall(const parser::Stateme
     ExpressionUtil::validateExpressionType(*optionValue, ExpressionType::LITERAL);
     if (LogicalTypeUtils::isFloatingPoint(optionValue->dataType.getLogicalTypeID()) &&
         LogicalTypeUtils::isIntegral(LogicalType(option->parameterType))) {
-        throw BinderException{stringFormat(
+        throw BinderException{std::format(
             "Expression {} has data type {} but expected {}. Implicit cast is not supported.",
             optionValue->toString(),
             LogicalTypeUtils::toString(optionValue->dataType.getLogicalTypeID()),

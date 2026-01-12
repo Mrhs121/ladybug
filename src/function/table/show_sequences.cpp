@@ -5,6 +5,7 @@
 #include "function/table/bind_input.h"
 #include "function/table/simple_table_function.h"
 #include "transaction/transaction.h"
+#include <format>
 
 using namespace lbug::common;
 using namespace lbug::catalog;
@@ -92,7 +93,7 @@ static std::unique_ptr<TableFuncBindData> bindFunc(const main::ClientContext* co
     //     {
     //         auto sequenceData = entry->getSequenceData();
     //         auto sequenceInfo =
-    //             SequenceInfo{entry->getName(), stringFormat("{}({})", databaseName,
+    //             SequenceInfo{entry->getName(), std::format("{}({})", databaseName,
     //             databaseType),
     //                 sequenceData.startValue, sequenceData.increment, sequenceData.minValue,
     //                 sequenceData.maxValue, sequenceData.cycle};

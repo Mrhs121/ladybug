@@ -11,6 +11,7 @@
 #include "planner/operator/logical_plan.h"
 #include "spdlog/spdlog.h"
 #include "test_helper/test_helper.h"
+#include <format>
 
 using namespace lbug::main;
 using namespace lbug::common;
@@ -42,7 +43,7 @@ void TestRunner::runBatchStatements(TestStatement& statement, Connection& conn,
     }
     std::ifstream file(cypherScript);
     if (!file.is_open()) {
-        throw Exception(stringFormat("Error opening file: {}, errno: {}.", cypherScript, errno));
+        throw Exception(std::format("Error opening file: {}, errno: {}.", cypherScript, errno));
     }
     std::string line;
     while (getline(file, line)) {

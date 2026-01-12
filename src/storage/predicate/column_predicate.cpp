@@ -4,6 +4,7 @@
 #include "binder/expression/scalar_function_expression.h"
 #include "storage/predicate/constant_predicate.h"
 #include "storage/predicate/null_predicate.h"
+#include <format>
 
 using namespace lbug::binder;
 using namespace lbug::common;
@@ -26,7 +27,7 @@ std::string ColumnPredicateSet::toString() const {
     }
     auto result = predicates[0]->toString();
     for (auto i = 1u; i < predicates.size(); ++i) {
-        result += stringFormat(" AND {}", predicates[i]->toString());
+        result += std::format(" AND {}", predicates[i]->toString());
     }
     return result;
 }
@@ -116,7 +117,7 @@ std::unique_ptr<ColumnPredicate> ColumnPredicateUtil::tryConvert(const Expressio
 }
 
 std::string ColumnPredicate::toString() {
-    return stringFormat("{} {}", columnName, ExpressionTypeUtil::toParsableString(expressionType));
+    return std::format("{} {}", columnName, ExpressionTypeUtil::toParsableString(expressionType));
 }
 
 } // namespace storage

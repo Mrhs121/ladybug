@@ -12,6 +12,7 @@
 #include "storage/table/node_table.h"
 #include "storage/table/table.h"
 #include "transaction/transaction.h"
+#include <format>
 
 using namespace lbug::common;
 
@@ -34,7 +35,7 @@ static void validateArrayColumnType(const catalog::TableCatalogEntry* entry,
     property_id_t propertyID) {
     auto& type = entry->getProperty(propertyID).getType();
     if (type.getLogicalTypeID() != LogicalTypeID::ARRAY) {
-        throw BinderException{stringFormat("Column {} is not of the expected type {}.",
+        throw BinderException{std::format("Column {} is not of the expected type {}.",
             entry->getProperty(propertyID).getName(),
             LogicalTypeUtils::toString(LogicalTypeID::ARRAY))};
     }

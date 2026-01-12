@@ -1,13 +1,13 @@
 #include "storage/disk_array.h"
 
 #include "common/exception/runtime.h"
-#include "common/string_format.h"
 #include "common/types/types.h"
 #include "storage/file_handle.h"
 #include "storage/shadow_file.h"
 #include "storage/shadow_utils.h"
 #include "storage/storage_utils.h"
 #include "transaction/transaction.h"
+#include <format>
 
 using namespace lbug::common;
 using namespace lbug::transaction;
@@ -74,9 +74,9 @@ bool DiskArrayInternal::checkOutOfBoundAccess(TransactionType trxType, uint64_t 
     auto currentNumElements = getNumElementsNoLock(trxType);
     if (idx >= currentNumElements) {
         // LCOV_EXCL_START
-        throw RuntimeException(stringFormat(
-            "idx: {} of the DiskArray to be accessed is >= numElements in DiskArray{}.", idx,
-            currentNumElements));
+        throw RuntimeException(
+            std::format("idx: {} of the DiskArray to be accessed is >= numElements in DiskArray{}.",
+                idx, currentNumElements));
         // LCOV_EXCL_STOP
     }
     return true;

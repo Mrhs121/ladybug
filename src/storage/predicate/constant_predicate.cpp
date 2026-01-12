@@ -4,6 +4,7 @@
 #include "function/comparison/comparison_functions.h"
 #include "storage/compression/compression.h"
 #include "storage/table/column_chunk_stats.h"
+#include <format>
 
 using namespace lbug::common;
 using namespace lbug::function;
@@ -84,11 +85,11 @@ std::string ColumnConstantPredicate::toString() {
         value.getDataType().getLogicalTypeID() == LogicalTypeID::TIMESTAMP ||
         value.getDataType().getLogicalTypeID() == LogicalTypeID::DATE ||
         value.getDataType().getLogicalTypeID() == LogicalTypeID::INTERVAL) {
-        valStr = stringFormat("'{}'", value.toString());
+        valStr = std::format("'{}'", value.toString());
     } else {
         valStr = value.toString();
     }
-    return stringFormat("{} {}", ColumnPredicate::toString(), valStr);
+    return std::format("{} {}", ColumnPredicate::toString(), valStr);
 }
 
 } // namespace storage

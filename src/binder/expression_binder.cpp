@@ -6,11 +6,11 @@
 #include "binder/expression_visitor.h"
 #include "common/exception/binder.h"
 #include "common/exception/not_implemented.h"
-#include "common/string_format.h"
 #include "expression_evaluator/expression_evaluator_utils.h"
 #include "function/cast/vector_cast_functions.h"
 #include "parser/expression/parsed_expression_visitor.h"
 #include "parser/expression/parsed_parameter_expression.h"
+#include <format>
 
 using namespace lbug::common;
 using namespace lbug::function;
@@ -102,7 +102,7 @@ std::shared_ptr<Expression> ExpressionBinder::foldExpression(
 
 static std::string unsupportedImplicitCastException(const Expression& expression,
     const std::string& targetTypeStr) {
-    return stringFormat(
+    return std::format(
         "Expression {} has data type {} but expected {}. Implicit cast is not supported.",
         expression.toString(), expression.dataType.toString(), targetTypeStr);
 }

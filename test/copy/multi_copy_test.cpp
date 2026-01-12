@@ -6,9 +6,9 @@
 
 #include "../include/test_helper/test_helper.h"
 #include "common/file_system/local_file_system.h"
-#include "common/string_format.h"
 #include "common/system_config.h"
 #include "graph_test/private_graph_test.h"
+#include <format>
 
 namespace lbug {
 namespace testing {
@@ -46,14 +46,14 @@ public:
 
     void copy(size_t values) {
         auto filePath = generateFile(values);
-        auto result = conn->query(common::stringFormat("COPY Test FROM '{}'", filePath));
+        auto result = conn->query(std::format("COPY Test FROM '{}'", filePath));
         ASSERT_TRUE(result->isSuccess()) << result->toString();
     }
 
     void copySerial(size_t values) {
         auto filePath = generateFile(values);
         auto result =
-            conn->query(common::stringFormat("COPY TestSerial FROM '{}' (HEADER=false)", filePath));
+            conn->query(std::format("COPY TestSerial FROM '{}' (HEADER=false)", filePath));
         ASSERT_TRUE(result->isSuccess()) << result->toString();
     }
 
@@ -75,16 +75,16 @@ public:
         if (isSerial) {
             for (size_t i = 0; i < std::min(static_cast<size_t>(1000), totalTuples); i++) {
                 auto index = dist(rng);
-                auto result = conn->query(common::stringFormat(
-                    "MATCH (t:TestSerial) WHERE t.id = {} RETURN t.id", index));
+                auto result = conn->query(
+                    std::format("MATCH (t:TestSerial) WHERE t.id = {} RETURN t.id", index));
                 ASSERT_TRUE(result->isSuccess()) << result->toString();
                 ASSERT_EQ(result->getNumTuples(), 1) << "ID " << index << " is missing";
             }
         } else {
             for (size_t i = 0; i < std::min(static_cast<size_t>(1000), totalTuples); i++) {
                 auto index = dist(rng);
-                auto result = conn->query(
-                    common::stringFormat("MATCH (t:Test) WHERE t.id = {} RETURN t.id", index));
+                auto result =
+                    conn->query(std::format("MATCH (t:Test) WHERE t.id = {} RETURN t.id", index));
                 ASSERT_TRUE(result->isSuccess()) << result->toString();
                 ASSERT_EQ(result->getNumTuples(), 1) << "ID " << index << " is missing";
                 ASSERT_EQ(result->getNext()->getValue(0)->getValue<int32_t>(), index);

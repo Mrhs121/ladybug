@@ -2,6 +2,7 @@
 
 #include "common/exception/conversion.h"
 #include "common/type_utils.h"
+#include <format>
 
 namespace lbug {
 namespace function {
@@ -71,9 +72,8 @@ bool CastArrayHelper::containsListToArray(const LogicalType& srcType, const Logi
             auto srcFieldTypes = StructType::getFieldTypes(srcType);
             auto dstFieldTypes = StructType::getFieldTypes(dstType);
             if (srcFieldTypes.size() != dstFieldTypes.size()) {
-                throw ConversionException{
-                    stringFormat("Unsupported casting function from {} to {}.", srcType.toString(),
-                        dstType.toString())};
+                throw ConversionException{std::format("Unsupported casting function from {} to {}.",
+                    srcType.toString(), dstType.toString())};
             }
 
             for (auto i = 0u; i < srcFieldTypes.size(); i++) {
@@ -102,8 +102,8 @@ void CastArrayHelper::validateListEntry(ValueVector* inputVector, const LogicalT
             auto listEntry = inputVector->getValue<list_entry_t>(pos);
             if (listEntry.size != ArrayType::getNumElements(resultType)) {
                 throw ConversionException{
-                    stringFormat("Unsupported casting LIST with incorrect list entry to ARRAY. "
-                                 "Expected: {}, Actual: {}.",
+                    std::format("Unsupported casting LIST with incorrect list entry to ARRAY. "
+                                "Expected: {}, Actual: {}.",
                         ArrayType::getNumElements(resultType),
                         inputVector->getValue<list_entry_t>(pos).size)};
             }
@@ -113,9 +113,8 @@ void CastArrayHelper::validateListEntry(ValueVector* inputVector, const LogicalT
             }
         } else if (inputType.getPhysicalType() == PhysicalTypeID::ARRAY) {
             if (ArrayType::getNumElements(inputType) != ArrayType::getNumElements(resultType)) {
-                throw ConversionException(
-                    stringFormat("Unsupported casting function from {} to {}.",
-                        inputType.toString(), resultType.toString()));
+                throw ConversionException(std::format("Unsupported casting function from {} to {}.",
+                    inputType.toString(), resultType.toString()));
             }
             auto listEntry = inputVector->getValue<list_entry_t>(pos);
             auto inputChildVector = ListVector::getDataVector(inputVector);

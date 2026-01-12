@@ -1,9 +1,9 @@
 #pragma once
-
 #include "common/case_insensitive_map.h"
 #include "common/constants.h"
 #include "common/copy_constructors.h"
 #include "common/types/value/value.h"
+#include <format>
 
 namespace lbug {
 namespace common {
@@ -53,13 +53,13 @@ struct CSVOption {
             result["header"] = hasHeader ? "true" : "false";
         }
         if (setEscape) {
-            result["escape"] = stringFormat("'\\{}'", escapeChar);
+            result["escape"] = std::format("'\\{}'", escapeChar);
         }
         if (setDelim) {
-            result["delim"] = stringFormat("'{}'", delimiter);
+            result["delim"] = std::format("'{}'", delimiter);
         }
         if (setQuote) {
-            result["quote"] = stringFormat("'\\{}'", quoteChar);
+            result["quote"] = std::format("'\\{}'", quoteChar);
         }
         if (autoDetection != CopyConstants::DEFAULT_CSV_AUTO_DETECT) {
             result["auto_detect"] = autoDetection ? "true" : "false";

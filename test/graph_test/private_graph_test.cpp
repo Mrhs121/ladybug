@@ -9,6 +9,7 @@
 #include "test_runner/multi_copy_split.h"
 #include "test_runner/test_runner.h"
 #include "transaction/transaction_manager.h"
+#include <format>
 
 using ::testing::Test;
 using namespace lbug::binder;
@@ -48,7 +49,7 @@ static void removeFile(const std::string& path) {
         return;
     }
     if (!std::filesystem::remove(path, removeErrorCode)) {
-        throw Exception(stringFormat("Error removing directory {}.  Error Message: {}", path,
+        throw Exception(std::format("Error removing directory {}.  Error Message: {}", path,
             removeErrorCode.message()));
     }
 }
@@ -157,7 +158,7 @@ void DBTest::runTest(std::vector<TestStatement>& statements, uint64_t checkpoint
                 }
             } else {
                 throw TestException(
-                    stringFormat("No connection name provided for statement: {}", statement.query));
+                    std::format("No connection name provided for statement: {}", statement.query));
             }
         }
     }

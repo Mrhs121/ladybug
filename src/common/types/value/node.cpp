@@ -1,9 +1,9 @@
 #include "common/types/value/node.h"
 
 #include "common/constants.h"
-#include "common/string_format.h"
 #include "common/types/types.h"
 #include "common/types/value/value.h"
+#include <format>
 
 namespace lbug {
 namespace common {
@@ -68,7 +68,7 @@ void NodeVal::throwIfNotNode(const Value* val) {
     // LCOV_EXCL_START
     if (val->dataType.getLogicalTypeID() != LogicalTypeID::NODE) {
         throw Exception(
-            stringFormat("Expected NODE type, but got {} type", val->dataType.toString()));
+            std::format("Expected NODE type, but got {} type", val->dataType.toString()));
     }
     // LCOV_EXCL_STOP
 }

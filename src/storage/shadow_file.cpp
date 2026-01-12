@@ -13,6 +13,7 @@
 #include "storage/file_db_id_utils.h"
 #include "storage/file_handle.h"
 #include "storage/storage_manager.h"
+#include <format>
 
 using namespace lbug::common;
 using namespace lbug::main;
@@ -102,7 +103,7 @@ void ShadowFile::replayShadowPageRecords(ClientContext& context) {
         dataFileInfo = vfs->openFile(context.getDatabasePath(),
             FileOpenFlags{FileFlags::WRITE | FileFlags::READ_ONLY, FileLockType::WRITE_LOCK});
     } catch (IOException& e) {
-        throw RuntimeException(stringFormat(
+        throw RuntimeException(std::format(
             "Found shadow file {} but no corresponding database file. This file "
             "may have been left behind from a previous database with the same name. If it is safe "
             "to do so, please delete this file and restart the database.",

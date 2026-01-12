@@ -4,7 +4,6 @@
 #include "catalog/catalog_entry/node_table_catalog_entry.h"
 #include "common/cast.h"
 #include "common/finally_wrapper.h"
-#include "common/string_format.h"
 #include "processor/execution_context.h"
 #include "processor/operator/persistent/index_builder.h"
 #include "processor/result/factorized_table_util.h"
@@ -15,6 +14,7 @@
 #include "storage/table/chunked_node_group.h"
 #include "storage/table/node_table.h"
 #include "transaction/transaction.h"
+#include <format>
 
 using namespace lbug::catalog;
 using namespace lbug::common;
@@ -292,7 +292,7 @@ void NodeBatchInsert::finalize(ExecutionContext* context) {
 }
 
 void NodeBatchInsert::finalizeInternal(ExecutionContext* context) {
-    auto outputMsg = stringFormat("{} tuples have been copied to the {} table.",
+    auto outputMsg = std::format("{} tuples have been copied to the {} table.",
         sharedState->getNumRows() - sharedState->getNumErroredRows(), info->tableName);
     auto clientContext = context->clientContext;
     FactorizedTableUtils::appendStringToTable(sharedState->fTable.get(), outputMsg,
@@ -302,8 +302,8 @@ void NodeBatchInsert::finalizeInternal(ExecutionContext* context) {
         WarningContext::Get(*clientContext)->getWarningCount(context->queryID);
     if (warningCount > 0) {
         auto warningMsg =
-            stringFormat("{} warnings encountered during copy. Use 'CALL "
-                         "show_warnings() RETURN *' to view the actual warnings. Query ID: {}",
+            std::format("{} warnings encountered during copy. Use 'CALL "
+                        "show_warnings() RETURN *' to view the actual warnings. Query ID: {}",
                 warningCount, context->queryID);
         FactorizedTableUtils::appendStringToTable(sharedState->fTable.get(), warningMsg,
             MemoryManager::Get(*clientContext));

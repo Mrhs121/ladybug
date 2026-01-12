@@ -2,6 +2,7 @@
 
 #include "common/assert.h"
 #include "function/comparison/vector_comparison_functions.h"
+#include <format>
 
 using namespace lbug::function;
 
@@ -126,7 +127,7 @@ std::string ExpressionTypeUtil::toParsableString(ExpressionType type) {
     case ExpressionType::IS_NOT_NULL:
         return "IS NOT NULL";
     default:
-        throw RuntimeException(stringFormat(
+        throw RuntimeException(std::format(
             "ExpressionTypeUtil::toParsableString not implemented for {}", toString(type)));
     }
 }

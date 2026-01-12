@@ -9,6 +9,7 @@
 #include "test_helper/test_helper.h"
 #include "test_runner/csv_converter.h"
 #include "test_runner/test_parser.h"
+#include <format>
 
 using ::testing::Test;
 using namespace lbug::testing;
@@ -220,7 +221,7 @@ private:
                 // If any of the existing output tuples contain a variable, retain the output,
                 // as `statement.newOutput` will replace such variables with their actual value.
                 if (hasVariable) {
-                    newFile += stringFormat("---- {}\n", linesToSkip);
+                    newFile += std::format("---- {}\n", linesToSkip);
                     newFile += skippedLines;
                 } else {
                     newFile += statement.newOutput;

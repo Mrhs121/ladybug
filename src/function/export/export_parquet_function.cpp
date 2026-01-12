@@ -7,6 +7,7 @@
 #include "processor/operator/persistent/writer/parquet/parquet_writer.h"
 #include "processor/result/factorized_table.h"
 #include "storage/buffer_manager/memory_manager.h"
+#include <format>
 
 namespace lbug {
 namespace function {
@@ -24,7 +25,7 @@ struct ParquetOptions {
                 setCompression(value);
             } else {
                 throw common::RuntimeException{
-                    common::stringFormat("Unrecognized parquet option: {}.", name)};
+                    std::format("Unrecognized parquet option: {}.", name)};
             }
         }
     }
@@ -32,7 +33,7 @@ struct ParquetOptions {
     void setCompression(common::Value& value) {
         if (value.getDataType().getLogicalTypeID() != LogicalTypeID::STRING) {
             throw common::RuntimeException{
-                common::stringFormat("Parquet compression option expects a string value, got: {}.",
+                std::format("Parquet compression option expects a string value, got: {}.",
                     value.getDataType().toString())};
         }
         auto strVal = common::StringUtils::getUpper(value.getValue<std::string>());
@@ -47,8 +48,8 @@ struct ParquetOptions {
         } else if (strVal == "LZ4_RAW") {
             codec = lbug_parquet::format::CompressionCodec::LZ4_RAW;
         } else {
-            throw common::RuntimeException{common::stringFormat(
-                "Unrecognized parquet compression option: {}.", value.toString())};
+            throw common::RuntimeException{
+                std::format("Unrecognized parquet compression option: {}.", value.toString())};
         }
     }
 };

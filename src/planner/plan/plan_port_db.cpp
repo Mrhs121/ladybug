@@ -9,6 +9,7 @@
 #include "planner/operator/simple/logical_import_db.h"
 #include "planner/planner.h"
 #include "transaction/transaction.h"
+#include <format>
 
 using namespace lbug::binder;
 using namespace lbug::storage;
@@ -27,7 +28,7 @@ std::vector<std::shared_ptr<LogicalOperator>> Planner::planExportTableData(
     StringUtils::toLower(fileTypeStr);
     // TODO(Ziyi): Shouldn't these be done in Binder?
     std::string name =
-        stringFormat("COPY_{}", FileTypeUtils::toString(boundExportDatabase.getFileType()));
+        std::format("COPY_{}", FileTypeUtils::toString(boundExportDatabase.getFileType()));
     auto entry =
         Catalog::Get(*clientContext)->getFunctionEntry(Transaction::Get(*clientContext), name);
     auto func = function::BuiltInFunctionsUtils::matchFunction(name,

@@ -4,6 +4,7 @@
 
 #include "common/arrow/arrow_row_batch.h"
 #include "common/exception/runtime.h"
+#include <format>
 
 namespace lbug {
 namespace common {
@@ -280,8 +281,7 @@ void ArrowConverter::setArrowFormat(ArrowSchemaHolder& rootHolder, ArrowSchema& 
         setArrowFormatForUnion(rootHolder, child, dataType, fallbackExtensionTypes);
         break;
     default:
-        throw RuntimeException(
-            stringFormat("{} cannot be exported to arrow.", dataType.toString()));
+        throw RuntimeException(std::format("{} cannot be exported to arrow.", dataType.toString()));
     }
 }
 

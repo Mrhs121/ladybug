@@ -6,6 +6,7 @@
 #include "function/built_in_function_utils.h"
 #include "parser/copy.h"
 #include "transaction/transaction.h"
+#include <format>
 
 using namespace lbug::common;
 using namespace lbug::parser;
@@ -22,13 +23,13 @@ std::unique_ptr<BoundStatement> Binder::bindCopyToClause(const Statement& statem
     auto query = bindQuery(*parsedQuery);
     auto columns = query->getStatementResult()->getColumns();
     auto fileTypeStr = fileTypeInfo.fileTypeStr;
-    auto name = stringFormat("COPY_{}", fileTypeStr);
+    auto name = std::format("COPY_{}", fileTypeStr);
     catalog::CatalogEntry* entry = nullptr;
     try {
         entry = catalog::Catalog::Get(*clientContext)
                     ->getFunctionEntry(transaction::Transaction::Get(*clientContext), name);
     } catch (CatalogException& exception) {
-        throw RuntimeException{common::stringFormat(
+        throw RuntimeException{std::format(
             "Exporting query result to the '{}' file is currently not supported.", fileTypeStr)};
     }
     auto exportFunc = function::BuiltInFunctionsUtils::matchFunction(name,

@@ -4,6 +4,7 @@
 #include "common/exception/not_implemented.h"
 #include "common/exception/runtime.h"
 #include "processor/result/factorized_table.h"
+#include <format>
 
 using namespace lbug::common;
 using namespace lbug::processor;
@@ -72,7 +73,7 @@ bool ArrowQueryResult::hasNextArrowChunk() {
 std::unique_ptr<ArrowArray> ArrowQueryResult::getNextArrowChunk(int64_t chunkSize) {
     if (chunkSize != chunkSize_) {
         throw RuntimeException(
-            stringFormat("Chunk size does not match expected value {}.", chunkSize_));
+            std::format("Chunk size does not match expected value {}.", chunkSize_));
     }
     return std::make_unique<ArrowArray>(arrays[cursor++]);
 }

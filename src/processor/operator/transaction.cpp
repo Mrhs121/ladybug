@@ -4,6 +4,7 @@
 #include "processor/execution_context.h"
 #include "transaction/transaction_context.h"
 #include "transaction/transaction_manager.h"
+#include <format>
 
 using namespace lbug::common;
 using namespace lbug::transaction;
@@ -62,13 +63,13 @@ void Transaction::validateActiveTransaction(const TransactionContext& context) c
     case TransactionAction::COMMIT:
     case TransactionAction::ROLLBACK: {
         if (!context.hasActiveTransaction()) {
-            throw TransactionManagerException(stringFormat("No active transaction for {}.",
+            throw TransactionManagerException(std::format("No active transaction for {}.",
                 TransactionActionUtils::toString(transactionAction)));
         }
     } break;
     case TransactionAction::CHECKPOINT: {
         if (context.hasActiveTransaction()) {
-            throw TransactionManagerException(stringFormat("Found active transaction for {}.",
+            throw TransactionManagerException(std::format("Found active transaction for {}.",
                 TransactionActionUtils::toString(transactionAction)));
         }
     } break;

@@ -4,6 +4,7 @@
 #include "function/table/bind_input.h"
 #include "function/table/simple_table_function.h"
 #include "graph/graph_entry_set.h"
+#include <format>
 
 using namespace lbug::common;
 using namespace lbug::main;
@@ -104,7 +105,7 @@ static std::unique_ptr<TableFuncBindData> bindFunc(const ClientContext* context,
     auto graphName = input->getValue(0).toString();
     auto graphEntrySet = graph::GraphEntrySet::Get(*context);
     if (!graphEntrySet->hasGraph(graphName)) {
-        throw BinderException(stringFormat("Graph {} does not exist.", graphName));
+        throw BinderException(std::format("Graph {} does not exist.", graphName));
     }
     auto graphEntry = graphEntrySet->getEntry(graphName);
     switch (graphEntry->type) {

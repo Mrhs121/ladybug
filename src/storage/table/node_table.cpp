@@ -12,6 +12,7 @@
 #include "storage/storage_manager.h"
 #include "storage/wal/local_wal.h"
 #include "transaction/transaction.h"
+#include <format>
 
 using namespace lbug::catalog;
 using namespace lbug::common;
@@ -806,7 +807,7 @@ std::optional<Index*> NodeTable::getIndex(const std::string& name) const {
             if (index.isLoaded()) {
                 return index.getIndex();
             }
-            throw RuntimeException(stringFormat(
+            throw RuntimeException(std::format(
                 "Index {} is not loaded yet. Please load the index before accessing it.", name));
         }
     }

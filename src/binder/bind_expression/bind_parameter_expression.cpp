@@ -2,6 +2,7 @@
 #include "binder/expression_binder.h"
 #include "common/exception/binder.h"
 #include "parser/expression/parsed_parameter_expression.h"
+#include <format>
 
 using namespace lbug::common;
 using namespace lbug::parser;
@@ -18,7 +19,7 @@ std::shared_ptr<Expression> ExpressionBinder::bindParameterExpression(
     }
     // LCOV_EXCL_START
     throw BinderException(
-        stringFormat("Cannot find parameter {}. This should not happen.", parameterName));
+        std::format("Cannot find parameter {}. This should not happen.", parameterName));
     // LCOV_EXCL_STOP
 }
 

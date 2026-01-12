@@ -9,6 +9,7 @@
 #include "processor/execution_context.h"
 #include "storage/storage_extension.h"
 #include "storage/storage_manager.h"
+#include <format>
 
 namespace lbug {
 namespace processor {
@@ -48,8 +49,8 @@ void AttachDatabase::executeInternal(ExecutionContext* context) {
             return;
         }
     }
-    auto errMsg = common::stringFormat("No loaded extension can handle database type: {}.",
-        attachInfo.dbType);
+    auto errMsg =
+        std::format("No loaded extension can handle database type: {}.", attachInfo.dbType);
     if (attachInfo.dbType == "duckdb") {
         errMsg += "\nDid you forget to load duckdb extension?\nYou can load it by: load "
                   "extension duckdb;";

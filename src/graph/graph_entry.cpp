@@ -1,6 +1,7 @@
 #include "graph/graph_entry.h"
 
 #include "common/exception/runtime.h"
+#include <format>
 
 using namespace lbug::planner;
 using namespace lbug::binder;
@@ -51,7 +52,7 @@ const NativeGraphEntryTableInfo& NativeGraphEntry::getRelInfo(table_id_t tableID
         }
     }
     // LCOV_EXCL_START
-    throw RuntimeException(stringFormat("Cannot find rel table with id {}", tableID));
+    throw RuntimeException(std::format("Cannot find rel table with id {}", tableID));
     // LCOV_EXCL_STOP
 }
 

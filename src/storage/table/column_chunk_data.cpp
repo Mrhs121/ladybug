@@ -26,6 +26,7 @@
 #include "storage/table/list_chunk_data.h"
 #include "storage/table/string_chunk_data.h"
 #include "storage/table/struct_chunk_data.h"
+#include <format>
 
 using namespace lbug::common;
 using namespace lbug::evaluator;
@@ -408,8 +409,8 @@ void ColumnChunkData::write(ColumnChunkData* chunk, ColumnChunkData* dstOffsets,
             const auto dstOffset = dstOffsets->getValue<offset_t>(i);
             if (multiplicity == RelMultiplicity::ONE && isNull(dstOffset)) {
                 throw CopyException(
-                    stringFormat("Node with offset: {} can only have one neighbour due "
-                                 "to the MANY-ONE/ONE-ONE relationship constraint.",
+                    std::format("Node with offset: {} can only have one neighbour due "
+                                "to the MANY-ONE/ONE-ONE relationship constraint.",
                         dstOffset));
             }
             if (nullData) {

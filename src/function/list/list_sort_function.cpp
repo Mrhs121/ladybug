@@ -6,6 +6,7 @@
 #include "function/list/functions/list_reverse_sort_function.h"
 #include "function/list/vector_list_functions.h"
 #include "function/scalar_function.h"
+#include <format>
 
 using namespace lbug::common;
 
@@ -32,7 +33,7 @@ static scalar_func_exec_t getListSortExecFunction(const binder::expression_vecto
 static std::unique_ptr<FunctionBindData> ListSortBindFunc(ScalarBindFuncInput input) {
     auto scalarFunction = input.definition->ptrCast<ScalarFunction>();
     if (input.arguments[0]->dataType.getLogicalTypeID() == common::LogicalTypeID::ANY) {
-        throw BinderException(stringFormat("Cannot resolve recursive data type for expression {}",
+        throw BinderException(std::format("Cannot resolve recursive data type for expression {}",
             input.arguments[0]->toString()));
     }
     common::TypeUtils::visit(

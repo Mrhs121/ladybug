@@ -7,6 +7,7 @@
 #include "common/types/uuid.h"
 #include "function/cast/functions/numeric_limits.h"
 #include "re2.h"
+#include <format>
 
 namespace lbug {
 namespace function {
@@ -57,7 +58,7 @@ bool tryCastToBool(const char* input, uint64_t len, bool& result) {
 void castStringToBool(const char* input, uint64_t len, bool& result) {
     if (!tryCastToBool(input, len, result)) {
         throw ConversionException{
-            stringFormat("Value {} is not a valid boolean", std::string{input, (size_t)len})};
+            std::format("Value {} is not a valid boolean", std::string{input, (size_t)len})};
     }
 }
 

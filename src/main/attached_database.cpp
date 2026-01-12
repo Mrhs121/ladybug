@@ -8,6 +8,7 @@
 #include "storage/storage_manager.h"
 #include "storage/storage_utils.h"
 #include "transaction/transaction_manager.h"
+#include <format>
 
 namespace lbug {
 namespace main {
@@ -38,7 +39,7 @@ static void validateEmptyWAL(const std::string& path, ClientContext* context) {
         auto walFile = vfs->openFile(walFilePath,
             common::FileOpenFlags(common::FileFlags::READ_ONLY), context);
         if (walFile->getFileSize() > 0) {
-            throw common::RuntimeException(common::stringFormat(
+            throw common::RuntimeException(std::format(
                 "Cannot attach an external Lbug database with non-empty wal file. Try manually "
                 "checkpointing the external database (i.e., run \"CHECKPOINT;\")."));
         }
@@ -59,8 +60,8 @@ AttachedLbugDatabase::AttachedLbugDatabase(std::string dbPath, std::string dbNam
         path = path.substr(0, path.size() - 1);
     }
     if (!vfs->fileOrPathExists(path, clientContext)) {
-        throw common::RuntimeException(common::stringFormat(
-            "Cannot attach a remote Lbug database due to invalid path: {}.", path));
+        throw common::RuntimeException(
+            std::format("Cannot attach a remote Lbug database due to invalid path: {}.", path));
     }
     catalog = std::make_unique<catalog::Catalog>();
     validateEmptyWAL(path, clientContext);

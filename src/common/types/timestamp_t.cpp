@@ -4,8 +4,8 @@
 #include <string>
 
 #include "common/exception/conversion.h"
-#include "common/string_format.h"
 #include "function/arithmetic/multiply.h"
+#include <format>
 
 namespace lbug {
 namespace common {
@@ -239,7 +239,7 @@ std::string Timestamp::getDateHeader(const timestamp_t& timestamp) {
     if (day < 10) {
         dayStr = "0" + dayStr;
     }
-    return stringFormat("{}{}{}", yearStr, monthStr, dayStr);
+    return std::format("{}{}{}", yearStr, monthStr, dayStr);
 }
 
 // Timestamp header is in the format: %Y%m%dT%H%M%SZ.
@@ -262,7 +262,7 @@ std::string Timestamp::getDateTimeHeader(const timestamp_t& timestamp) {
     if (seconds < 10) {
         secondsStr = "0" + secondsStr;
     }
-    return stringFormat("{}T{}{}{}Z", dateHeader, hoursStr, minutesStr, secondsStr);
+    return std::format("{}T{}{}{}Z", dateHeader, hoursStr, minutesStr, secondsStr);
 }
 
 date_t Timestamp::getDate(timestamp_t timestamp) {

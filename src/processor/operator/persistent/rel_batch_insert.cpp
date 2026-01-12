@@ -4,7 +4,6 @@
 #include "common/cast.h"
 #include "common/exception/copy.h"
 #include "common/exception/message.h"
-#include "common/string_format.h"
 #include "common/task_system/progress_bar.h"
 #include "processor/execution_context.h"
 #include "processor/result/factorized_table_util.h"
@@ -16,6 +15,7 @@
 #include "storage/table/column_chunk_data.h"
 #include "storage/table/csr_chunked_node_group.h"
 #include "storage/table/rel_table.h"
+#include <format>
 
 using namespace lbug::catalog;
 using namespace lbug::common;
@@ -241,7 +241,7 @@ void RelBatchInsert::finalizeInternal(ExecutionContext* context) {
     if (relInfo->direction == RelDataDirection::FWD) {
         KU_ASSERT(relInfo->partitioningIdx == 0);
 
-        auto outputMsg = stringFormat("{} tuples have been copied to the {} table.",
+        auto outputMsg = std::format("{} tuples have been copied to the {} table.",
             sharedState->getNumRows(), relInfo->tableName);
         auto clientContext = context->clientContext;
         FactorizedTableUtils::appendStringToTable(sharedState->fTable.get(), outputMsg,
@@ -251,8 +251,8 @@ void RelBatchInsert::finalizeInternal(ExecutionContext* context) {
         const auto warningCount = warningContext->getWarningCount(context->queryID);
         if (warningCount > 0) {
             auto warningMsg =
-                stringFormat("{} warnings encountered during copy. Use 'CALL "
-                             "show_warnings() RETURN *' to view the actual warnings. Query ID: {}",
+                std::format("{} warnings encountered during copy. Use 'CALL "
+                            "show_warnings() RETURN *' to view the actual warnings. Query ID: {}",
                     warningCount, context->queryID);
             FactorizedTableUtils::appendStringToTable(sharedState->fTable.get(), warningMsg,
                 MemoryManager::Get(*context->clientContext));

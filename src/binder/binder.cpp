@@ -4,7 +4,6 @@
 #include "catalog/catalog.h"
 #include "common/copier_config/csv_reader_config.h"
 #include "common/exception/binder.h"
-#include "common/string_format.h"
 #include "common/string_utils.h"
 #include "function/built_in_function_utils.h"
 #include "function/table/table_function.h"
@@ -14,6 +13,7 @@
 #include "processor/operator/persistent/reader/npy/npy_reader.h"
 #include "processor/operator/persistent/reader/parquet/parquet_reader.h"
 #include "transaction/transaction.h"
+#include <format>
 
 using namespace lbug::catalog;
 using namespace lbug::common;
@@ -259,7 +259,7 @@ TableFunction Binder::getScanFunction(const FileTypeInfo& typeInfo,
     } break;
     case FileType::UNKNOWN: {
         try {
-            auto name = stringFormat("{}_SCAN", typeInfo.fileTypeStr);
+            auto name = std::format("{}_SCAN", typeInfo.fileTypeStr);
             auto entry = catalog->getFunctionEntry(transaction, name);
             func = BuiltInFunctionsUtils::matchFunction(name, inputTypes,
                 entry->ptrCast<FunctionCatalogEntry>());
@@ -269,8 +269,8 @@ TableFunction Binder::getScanFunction(const FileTypeInfo& typeInfo,
                                       "set the file format explicitly by (file_format=<type>)."};
             }
             throw BinderException{
-                stringFormat("Cannot load from file type {}. If this file type is part of a lbug "
-                             "extension please load the extension then try again.",
+                std::format("Cannot load from file type {}. If this file type is part of a lbug "
+                            "extension please load the extension then try again.",
                     typeInfo.fileTypeStr)};
         }
     } break;
