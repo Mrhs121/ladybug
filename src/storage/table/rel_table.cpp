@@ -1,5 +1,7 @@
 #include "storage/table/rel_table.h"
 
+#include "common/data_chunk/sel_vector.h"
+
 #include <algorithm>
 
 #include "catalog/catalog_entry/rel_group_catalog_entry.h"
@@ -354,6 +356,11 @@ void RelTable::detachDeleteForCSRRels(Transaction* transaction, RelTableData* ta
     RelTableDeleteState* deleteState) {
     const auto localTable = transaction->getLocalStorage()->getLocalTable(tableID);
     const auto tempState = deleteState->dstNodeIDVector.state.get();
+
+    common::row_idx_t totalEdgesDeleted = 0;
+    common::row_idx_t totalNodesProcessed = 0;
+    constexpr common::row_idx_t LOG_INTERVAL = 1000; // Log every 1000 edges deleted
+
     while (scan(transaction, *relDataReadState)) {
         const auto numRelsScanned = tempState->getSelVector().getSelSize();
 
@@ -384,9 +391,22 @@ void RelTable::detachDeleteForCSRRels(Transaction* transaction, RelTableData* ta
                     deleteState->dstNodeIDVector, deleteState->relIDVector);
                 KU_ASSERT(deleted == reverseDeleted);
             }
+            totalEdgesDeleted++;
+
+            // Log progress every LOG_INTERVAL edges
+            if (totalEdgesDeleted % LOG_INTERVAL == 0) {
+                printf("[RelTable::detachDeleteForCSRRels] Progress: %zu edges deleted, %zu nodes processed\n",
+                       totalEdgesDeleted, totalNodesProcessed);
+                fflush(stdout);
+            }
         }
         tempState->getSelVectorUnsafe().setToUnfiltered();
+        totalNodesProcessed++;
     }
+
+    printf("[RelTable::detachDeleteForCSRRels] Completed: %zu edges deleted, %zu nodes processed\n",
+           totalEdgesDeleted, totalNodesProcessed);
+    fflush(stdout);
 }
 
 void RelTable::addColumn(Transaction* transaction, TableAddColumnState& addColumnState,

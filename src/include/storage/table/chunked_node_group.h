@@ -204,6 +204,9 @@ public:
         common::column_id_t columnID, const common::ValueVector& propertyVector);
 
     bool delete_(const transaction::Transaction* transaction, common::row_idx_t rowIdxInChunk);
+    // Batch delete multiple rows at once for better performance. Returns number of rows deleted.
+    common::row_idx_t deleteBatch(const transaction::Transaction* transaction,
+        const std::vector<common::row_idx_t>& rowIdxsInChunk);
 
     void addColumn(MemoryManager& mm, const TableAddColumnState& addColumnState,
         bool enableCompression, PageAllocator* pageAllocator, ColumnStats* newColumnStats);

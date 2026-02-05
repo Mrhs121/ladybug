@@ -1,5 +1,7 @@
 #include "storage/table/version_info.h"
 
+#include <vector>
+
 #include "common/exception/runtime.h"
 #include "common/serializer/deserializer.h"
 #include "common/serializer/serializer.h"
@@ -38,6 +40,8 @@ struct VectorVersionInfo {
 
     void append(transaction_t transactionID, row_idx_t startRow, row_idx_t numRows);
     bool delete_(transaction_t transactionID, row_idx_t rowIdx);
+    // Batch delete multiple rows at once for better performance
+    row_idx_t deleteBatch(transaction_t transactionID, const std::vector<row_idx_t>& rowIdxs);
     void setInsertCommitTS(transaction_t commitTS, row_idx_t startRow, row_idx_t numRows);
     void setDeleteCommitTS(transaction_t commitTS, row_idx_t startRow, row_idx_t numRows);
 
@@ -118,6 +122,44 @@ bool VectorVersionInfo::delete_(const transaction_t transactionID, const row_idx
     }
     deletedVersions->operator[](rowIdx) = transactionID;
     return true;
+}
+
+row_idx_t VectorVersionInfo::deleteBatch(const transaction_t transactionID,
+    const std::vector<row_idx_t>& rowIdxs) {
+    if (rowIdxs.empty()) {
+        return 0;
+    }
+    deletionStatus = DeletionStatus::CHECK_VERSION;
+
+    if (transactionID == sameDeletionVersion) {
+        // All are deleted in the same transaction.
+        return 0;
+    }
+
+    if (isSameDeletionVersion()) {
+        // All are deleted in a different transaction.
+        throw RuntimeException(
+            "Write-write conflict: deleting a row that is already deleted by another transaction.");
+    }
+
+    if (!deletedVersions) {
+        // No deletions before.
+        initDeletionVersionArray();
+    }
+
+    row_idx_t numDeleted = 0;
+    for (const auto rowIdx : rowIdxs) {
+        if (deletedVersions->operator[](rowIdx) == transactionID) {
+            continue;
+        }
+        if (deletedVersions->operator[](rowIdx) != INVALID_TRANSACTION) {
+            throw RuntimeException(
+                "Write-write conflict: deleting a row that is already deleted by another transaction.");
+        }
+        deletedVersions->operator[](rowIdx) = transactionID;
+        numDeleted++;
+    }
+    return numDeleted;
 }
 
 void VectorVersionInfo::setInsertCommitTS(transaction_t commitTS, row_idx_t startRow,

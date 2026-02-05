@@ -64,6 +64,14 @@ public:
         const common::ValueVector& dataVector) const;
     bool delete_(transaction::Transaction* transaction, common::ValueVector& boundNodeIDVector,
         const common::ValueVector& relIDVector);
+    // Batch delete multiple edges at once for better performance
+    common::row_idx_t deleteBatch(transaction::Transaction* transaction,
+        const common::ValueVector& boundNodeIDVector, const common::ValueVector& relIDVector,
+        common::SelectionVector& selVector);
+    // Optimized batch delete that directly accepts row indices and source info
+    common::row_idx_t deleteBatchWithRowInfo(transaction::Transaction* transaction,
+        const common::ValueVector& rowIdxVector, const common::ValueVector& boundNodeIDVector,
+        CSRNodeGroupScanSource source, common::SelectionVector& selVector);
     void addColumn(TableAddColumnState& addColumnState, PageAllocator& pageAllocator);
 
     bool checkIfNodeHasRels(transaction::Transaction* transaction,

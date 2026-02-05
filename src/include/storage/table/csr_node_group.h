@@ -204,6 +204,9 @@ public:
         const common::ValueVector& propertyVector);
     bool delete_(const transaction::Transaction* transaction, CSRNodeGroupScanSource source,
         common::row_idx_t rowIdxInGroup);
+    // Batch delete multiple rows at once for better performance
+    common::row_idx_t deleteBatch(const transaction::Transaction* transaction,
+        CSRNodeGroupScanSource source, const std::vector<common::row_idx_t>& rowIdxsInGroup);
 
     void addColumn(TableAddColumnState& addColumnState, PageAllocator* pageAllocator,
         ColumnStats* newColumnStats) override;

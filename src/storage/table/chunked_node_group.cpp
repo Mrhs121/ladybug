@@ -396,6 +396,23 @@ bool ChunkedNodeGroup::delete_(const Transaction* transaction, row_idx_t rowIdxI
     return versionInfo->delete_(transaction->getID(), rowIdxInChunk);
 }
 
+row_idx_t ChunkedNodeGroup::deleteBatch(const Transaction* transaction,
+    const std::vector<row_idx_t>& rowIdxsInChunk) {
+    if (rowIdxsInChunk.empty()) {
+        return 0;
+    }
+    if (!versionInfo) {
+        versionInfo = std::make_unique<VersionInfo>();
+    }
+    row_idx_t numDeleted = 0;
+    for (const auto rowIdx : rowIdxsInChunk) {
+        if (versionInfo->delete_(transaction->getID(), rowIdx)) {
+            numDeleted++;
+        }
+    }
+    return numDeleted;
+}
+
 void ChunkedNodeGroup::addColumn(MemoryManager& mm, const TableAddColumnState& addColumnState,
     bool enableCompression, PageAllocator* pageAllocator, ColumnStats* newColumnStats) {
     auto& dataType = addColumnState.propertyDefinition.getType();

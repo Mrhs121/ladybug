@@ -440,6 +440,45 @@ bool CSRNodeGroup::delete_(const Transaction* transaction, CSRNodeGroupScanSourc
     }
 }
 
+// NOLINTNEXTLINE(readability-make-member-function-const): Semantically non-const.
+row_idx_t CSRNodeGroup::deleteBatch(const Transaction* transaction, CSRNodeGroupScanSource source,
+    const std::vector<row_idx_t>& rowIdxsInGroup) {
+    if (rowIdxsInGroup.empty()) {
+        return 0;
+    }
+    switch (source) {
+    case CSRNodeGroupScanSource::COMMITTED_PERSISTENT: {
+        KU_ASSERT(persistentChunkGroup);
+        return persistentChunkGroup->deleteBatch(transaction, rowIdxsInGroup);
+    }
+    case CSRNodeGroupScanSource::COMMITTED_IN_MEMORY: {
+        KU_ASSERT(csrIndex);
+        // Group row indices by chunk for batch processing
+        std::vector<std::vector<row_idx_t>> rowIdxsByChunk;
+        const auto lock = chunkedGroups.lock();
+        for (const auto rowIdxInGroup : rowIdxsInGroup) {
+            auto [chunkIdx, rowInChunk] = StorageUtils::getQuotientRemainder(rowIdxInGroup,
+                StorageConfig::CHUNKED_NODE_GROUP_CAPACITY);
+            if (chunkIdx >= rowIdxsByChunk.size()) {
+                rowIdxsByChunk.resize(chunkIdx + 1);
+            }
+            rowIdxsByChunk[chunkIdx].push_back(rowInChunk);
+        }
+        row_idx_t totalDeleted = 0;
+        for (size_t chunkIdx = 0; chunkIdx < rowIdxsByChunk.size(); ++chunkIdx) {
+            if (!rowIdxsByChunk[chunkIdx].empty()) {
+                const auto chunkedGroup = chunkedGroups.getGroup(lock, chunkIdx);
+                totalDeleted += chunkedGroup->deleteBatch(transaction, rowIdxsByChunk[chunkIdx]);
+            }
+        }
+        return totalDeleted;
+    }
+    default: {
+        return 0;
+    }
+    }
+}
+
 void CSRNodeGroup::addColumn(TableAddColumnState& addColumnState, PageAllocator* pageAllocator,
     ColumnStats* newColumnStats) {
     if (persistentChunkGroup) {

@@ -1,5 +1,7 @@
 #include "storage/table/rel_table_data.h"
 
+#include <unordered_map>
+
 #include "catalog/catalog_entry/rel_group_catalog_entry.h"
 #include "common/enums/rel_direction.h"
 #include "common/types/types.h"
@@ -142,6 +144,154 @@ bool RelTableData::delete_(Transaction* transaction, ValueVector& boundNodeIDVec
         transaction->pushDeleteInfo(nodeGroupIdx, rowIdx, 1, getVersionRecordHandler(source));
     }
     return isDeleted;
+}
+
+// NOLINTNEXTLINE(readability-make-member-function-const): Semantically non-const.
+row_idx_t RelTableData::deleteBatch(Transaction* transaction, const ValueVector& boundNodeIDVector,
+    const ValueVector& relIDVector, SelectionVector& selVector) {
+    if (selVector.getSelSize() == 0) {
+        return 0;
+    }
+
+    // Group edges by node group and source for batch processing
+    struct BatchDeleteGroup {
+        node_group_idx_t nodeGroupIdx;
+        CSRNodeGroupScanSource source;
+        std::vector<row_idx_t> rowIdxs;
+    };
+    std::vector<BatchDeleteGroup> deleteGroups;
+
+    row_idx_t totalDeleted = 0;
+
+    for (auto i = 0u; i < selVector.getSelSize(); i++) {
+        const auto pos = selVector[i];
+        if (boundNodeIDVector.isNull(pos) || relIDVector.isNull(pos)) {
+            continue;
+        }
+
+        const auto boundNodeOffset = boundNodeIDVector.getValue<nodeID_t>(pos).offset;
+        const auto nodeGroupIdx = StorageUtils::getNodeGroupIdx(boundNodeOffset);
+        const auto relOffset = relIDVector.getValue<nodeID_t>(pos).offset;
+
+        // Find matching row for this edge
+        DataChunk scanChunk(1);
+        scanChunk.insert(0, std::make_shared<ValueVector>(LogicalType::INTERNAL_ID()));
+        std::vector columnIDs = {REL_ID_COLUMN_ID, ROW_IDX_COLUMN_ID};
+        std::vector<const Column*> columns{getColumn(REL_ID_COLUMN_ID), nullptr};
+
+        // Create a temporary single-element scan
+        ValueVector tempBoundVector(LogicalType::INTERNAL_ID());
+        tempBoundVector.state->getSelVectorUnsafe().setToFiltered(1);
+        tempBoundVector.state->getSelVectorUnsafe()[0] = 0;
+        tempBoundVector.setValue(0, boundNodeIDVector.getValue<nodeID_t>(pos));
+
+        auto scanState = std::make_unique<RelTableScanState>(*mm, &tempBoundVector,
+            std::vector{&scanChunk.getValueVectorMutable(0)}, scanChunk.state, true);
+        scanState->setToTable(transaction, &table, columnIDs, {}, direction);
+        scanState->initState(transaction, getNodeGroup(nodeGroupIdx));
+
+        row_idx_t matchingRowIdx = INVALID_ROW_IDX;
+        auto source = CSRNodeGroupScanSource::NONE;
+        const auto scannedIDVector = scanState->outputVectors[0];
+
+        while (true) {
+            const auto scanResult = scanState->nodeGroup->scan(transaction, *scanState);
+            if (scanResult == NODE_GROUP_SCAN_EMPTY_RESULT) {
+                break;
+            }
+            for (auto j = 0u; j < scanState->outState->getSelVector().getSelSize(); j++) {
+                const auto scanPos = scanState->outState->getSelVector()[j];
+                if (scannedIDVector->getValue<internalID_t>(scanPos).offset == relOffset) {
+                    const auto rowIdxPos = scanState->rowIdxVector->state->getSelVector()[j];
+                    matchingRowIdx = scanState->rowIdxVector->getValue<row_idx_t>(rowIdxPos);
+                    source = scanState->nodeGroupScanState->cast<CSRNodeGroupScanState>().source;
+                    break;
+                }
+            }
+            if (matchingRowIdx != INVALID_ROW_IDX) {
+                break;
+            }
+        }
+
+        if (matchingRowIdx != INVALID_ROW_IDX) {
+            // Find or create a group for this node group and source
+            bool found = false;
+            for (auto& group : deleteGroups) {
+                if (group.nodeGroupIdx == nodeGroupIdx && group.source == source) {
+                    group.rowIdxs.push_back(matchingRowIdx);
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                BatchDeleteGroup newGroup;
+                newGroup.nodeGroupIdx = nodeGroupIdx;
+                newGroup.source = source;
+                newGroup.rowIdxs.push_back(matchingRowIdx);
+                deleteGroups.push_back(std::move(newGroup));
+            }
+        }
+    }
+
+    // Perform batch deletions
+    for (const auto& group : deleteGroups) {
+        if (!group.rowIdxs.empty()) {
+            auto& csrNodeGroup = getNodeGroup(group.nodeGroupIdx)->cast<CSRNodeGroup>();
+            row_idx_t numDeleted = csrNodeGroup.deleteBatch(transaction, group.source, group.rowIdxs);
+            totalDeleted += numDeleted;
+
+            if (transaction->shouldAppendToUndoBuffer()) {
+                // Log deletions to transaction
+                transaction->pushDeleteInfo(group.nodeGroupIdx, group.rowIdxs[0],
+                    group.rowIdxs.size(), getVersionRecordHandler(group.source));
+            }
+        }
+    }
+
+    return totalDeleted;
+}
+
+// NOLINTNEXTLINE(readability-make-member-function-const): Semantically non-const.
+row_idx_t RelTableData::deleteBatchWithRowInfo(Transaction* transaction,
+    const ValueVector& rowIdxVector, const ValueVector& boundNodeIDVector,
+    CSRNodeGroupScanSource source, SelectionVector& selVector) {
+    if (selVector.getSelSize() == 0) {
+        return 0;
+    }
+
+    // Group row indices by node group for batch processing
+    std::unordered_map<node_group_idx_t, std::vector<row_idx_t>> deleteGroups;
+
+    for (auto i = 0u; i < selVector.getSelSize(); i++) {
+        const auto pos = selVector[i];
+        if (boundNodeIDVector.isNull(pos)) {
+            continue;
+        }
+
+        const auto boundNodeOffset = boundNodeIDVector.getValue<nodeID_t>(pos).offset;
+        const auto nodeGroupIdx = StorageUtils::getNodeGroupIdx(boundNodeOffset);
+        const auto rowIdx = rowIdxVector.getValue<row_idx_t>(pos);
+
+        deleteGroups[nodeGroupIdx].push_back(rowIdx);
+    }
+
+    // Perform batch deletions
+    row_idx_t totalDeleted = 0;
+    for (const auto& [nodeGroupIdx, rowIdxs] : deleteGroups) {
+        if (!rowIdxs.empty()) {
+            auto& csrNodeGroup = getNodeGroup(nodeGroupIdx)->cast<CSRNodeGroup>();
+            row_idx_t numDeleted = csrNodeGroup.deleteBatch(transaction, source, rowIdxs);
+            totalDeleted += numDeleted;
+
+            if (transaction->shouldAppendToUndoBuffer()) {
+                // Log deletions to transaction
+                transaction->pushDeleteInfo(nodeGroupIdx, rowIdxs[0],
+                    rowIdxs.size(), getVersionRecordHandler(source));
+            }
+        }
+    }
+
+    return totalDeleted;
 }
 
 void RelTableData::addColumn(TableAddColumnState& addColumnState, PageAllocator& pageAllocator) {
