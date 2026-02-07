@@ -346,19 +346,20 @@ void RelTable::detachDeleteBatch(Transaction* transaction, ValueVector& srcNodeI
         }
     }
 
+    const auto tempState = std::make_shared<DataChunkState>();
+    tempState->setToFlat();
+    ValueVector tempSrcNodeID(LogicalType::INTERNAL_ID());
+    tempSrcNodeID.setState(tempState);
+
+    auto relReadState = std::make_unique<RelTableScanState>(*memoryManager, &tempSrcNodeID,
+        std::vector<ValueVector*>{&dstNodeIDVector, &relIDVector}, dstNodeIDVector.state,
+        true /*randomLookup*/);
+    relReadState->setToTable(transaction, this, {NBR_ID_COLUMN_ID, REL_ID_COLUMN_ID}, {}, direction);
+
     for (const auto srcOffset : srcOffsets) {
         nodeID_t srcNodeID{srcOffset, srcNodeIDVector.getValue<nodeID_t>(0).tableID};
-        const auto tempState = std::make_shared<DataChunkState>();
-        ValueVector tempSrcNodeID(LogicalType::INTERNAL_ID());
-        tempSrcNodeID.setState(tempState);
-        tempState->getSelVectorUnsafe().setSelSize(1);
         tempSrcNodeID.setValue(0, srcNodeID);
 
-        auto relReadState = std::make_unique<RelTableScanState>(*memoryManager, &tempSrcNodeID,
-            std::vector{&dstNodeIDVector, &relIDVector}, dstNodeIDVector.state,
-            true /*randomLookup*/);
-        relReadState->setToTable(transaction, this, {NBR_ID_COLUMN_ID, REL_ID_COLUMN_ID}, {},
-            direction);
         initScanState(transaction, *relReadState);
 
         const auto sharedState = dstNodeIDVector.state.get();
@@ -377,8 +378,8 @@ void RelTable::detachDeleteBatch(Transaction* transaction, ValueVector& srcNodeI
                 const auto relOffset = relIDVector.readNodeOffset(relIDPos);
                 if (relOffset >= StorageConstants::MAX_NUM_ROWS_IN_TABLE) {
                     KU_ASSERT(localTable);
-                    RelTableDeleteState localDeleteState{tempSrcNodeID, dstNodeIDVector,
-                        relIDVector, direction};
+                    RelTableDeleteState localDeleteState{tempSrcNodeID, dstNodeIDVector, relIDVector,
+                        direction};
                     localTable->delete_(transaction, localDeleteState);
                     continue;
                 }
