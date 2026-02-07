@@ -244,6 +244,8 @@ ROLE : ( 'R' | 'r' ) ( 'O' | 'o' ) ( 'L' | 'l' ) ( 'E' | 'e' ) ;
 
 MAP : ( 'M' | 'm' ) ( 'A' | 'a' ) ( 'P' | 'p' ) ;
 
+UPSERT : ( 'U' | 'u' ) ( 'P' | 'p' ) ( 'S' | 's' ) ( 'E' | 'e' ) ( 'R' | 'r' ) ( 'T' | 't' ) ;
+
 
 
 ku_Statements
@@ -540,6 +542,7 @@ kU_QueryPart
 oC_UpdatingClause
     : oC_Create
         | oC_Merge
+        | kU_Upsert
         | oC_Set
         | oC_Delete
         ;
@@ -584,6 +587,8 @@ oC_Create
 // For unknown reason, openCypher use oC_PatternPart instead of oC_Pattern. There should be no difference in terms of planning.
 // So we choose to be consistent with oC_Create and use oC_Pattern instead.
 oC_Merge : MERGE SP? oC_Pattern ( SP oC_MergeAction )* ;
+
+kU_Upsert : UPSERT SP? oC_Pattern ( SP? oC_Set )? ;
 
 oC_MergeAction
     :  ( ON SP MATCH SP oC_Set )
@@ -1038,6 +1043,7 @@ kU_NonReservedKeywords
         | USER
         | PASSWORD
         | MAP
+        | UPSERT
         ;
 
 UnescapedSymbolicName

@@ -14,6 +14,8 @@ std::unique_ptr<UpdatingClause> Transformer::transformUpdatingClause(
         return transformCreate(*ctx.oC_Create());
     } else if (ctx.oC_Merge()) {
         return transformMerge(*ctx.oC_Merge());
+    } else if (ctx.kU_Upsert()) {
+        return transformUpsert(*ctx.kU_Upsert());
     } else if (ctx.oC_Set()) {
         return transformSet(*ctx.oC_Set());
     } else {
@@ -37,6 +39,17 @@ std::unique_ptr<UpdatingClause> Transformer::transformMerge(CypherParser::OC_Mer
             for (auto& setItemCtx : mergeActionCtx->oC_Set()->oC_SetItem()) {
                 mergeClause->addOnCreateSetItems(transformSetItem(*setItemCtx));
             }
+        }
+    }
+    return mergeClause;
+}
+
+std::unique_ptr<UpdatingClause> Transformer::transformUpsert(CypherParser::KU_UpsertContext& ctx) {
+    auto mergeClause = std::make_unique<MergeClause>(transformPattern(*ctx.oC_Pattern()));
+    if (ctx.oC_Set()) {
+        for (auto& setItemCtx : ctx.oC_Set()->oC_SetItem()) {
+            mergeClause->addOnMatchSetItems(transformSetItem(*setItemCtx));
+            mergeClause->addOnCreateSetItems(transformSetItem(*setItemCtx));
         }
     }
     return mergeClause;

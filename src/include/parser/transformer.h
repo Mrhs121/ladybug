@@ -81,6 +81,7 @@ public:
         CypherParser::OC_UpdatingClauseContext& ctx);
     std::unique_ptr<UpdatingClause> transformCreate(CypherParser::OC_CreateContext& ctx);
     std::unique_ptr<UpdatingClause> transformMerge(CypherParser::OC_MergeContext& ctx);
+    std::unique_ptr<UpdatingClause> transformUpsert(CypherParser::KU_UpsertContext& ctx);
     std::unique_ptr<UpdatingClause> transformSet(CypherParser::OC_SetContext& ctx);
     parsed_expr_pair transformSetItem(CypherParser::OC_SetItemContext& ctx);
     std::unique_ptr<UpdatingClause> transformDelete(CypherParser::OC_DeleteContext& ctx);

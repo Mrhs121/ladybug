@@ -39,13 +39,13 @@ public:
     UNION = 143, UNWIND = 144, UNINSTALL = 145, UPDATE = 146, USE = 147, 
     WHEN = 148, WHERE = 149, WITH = 150, WRITE = 151, WSHORTEST = 152, XOR = 153, 
     SINGLE = 154, YIELD = 155, USER = 156, PASSWORD = 157, ROLE = 158, MAP = 159, 
-    DECIMAL = 160, STAR = 161, L_SKIP = 162, INVALID_NOT_EQUAL = 163, COLON = 164, 
-    DOTDOT = 165, MINUS = 166, FACTORIAL = 167, StringLiteral = 168, EscapedChar = 169, 
-    DecimalInteger = 170, HexLetter = 171, HexDigit = 172, Digit = 173, 
-    NonZeroDigit = 174, NonZeroOctDigit = 175, ZeroDigit = 176, ExponentDecimalReal = 177, 
-    RegularDecimalReal = 178, UnescapedSymbolicName = 179, IdentifierStart = 180, 
-    IdentifierPart = 181, EscapedSymbolicName = 182, SP = 183, WHITESPACE = 184, 
-    CypherComment = 185, Unknown = 186
+    UPSERT = 160, DECIMAL = 161, STAR = 162, L_SKIP = 163, INVALID_NOT_EQUAL = 164, 
+    COLON = 165, DOTDOT = 166, MINUS = 167, FACTORIAL = 168, StringLiteral = 169, 
+    EscapedChar = 170, DecimalInteger = 171, HexLetter = 172, HexDigit = 173, 
+    Digit = 174, NonZeroDigit = 175, NonZeroOctDigit = 176, ZeroDigit = 177, 
+    ExponentDecimalReal = 178, RegularDecimalReal = 179, UnescapedSymbolicName = 180, 
+    IdentifierStart = 181, IdentifierPart = 182, EscapedSymbolicName = 183, 
+    SP = 184, WHITESPACE = 185, CypherComment = 186, Unknown = 187
   };
 
   explicit CypherLexer(antlr4::CharStream *input);
