@@ -36,6 +36,9 @@ void DeleteNode::initLocalStateInternal(ResultSet* resultSet, ExecutionContext* 
 
 bool DeleteNode::getNextTuplesInternal(ExecutionContext* context) {
     if (!children[0]->getNextTuple(context)) {
+        for (auto& executor : executors) {
+            executor->finalize(context);
+        }
         return false;
     }
     for (auto& executor : executors) {
