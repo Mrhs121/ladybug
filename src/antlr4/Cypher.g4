@@ -242,7 +242,8 @@ kU_Transaction
         | BEGIN SP TRANSACTION SP READ SP ONLY
         | COMMIT
         | ROLLBACK
-        | CHECKPOINT;
+        | CHECKPOINT
+        | VACUUM SP DATABASE;
 
 kU_Extension
     : kU_LoadExtension
@@ -775,6 +776,7 @@ kU_NonReservedKeywords
         | RENAME
         | RETURN
         | ROLLBACK
+        | VACUUM
         | ROLE
         | SEQUENCE
         | SET

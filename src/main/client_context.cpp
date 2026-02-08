@@ -78,8 +78,8 @@ ClientContext::~ClientContext() {
     if (preventTransactionRollbackOnDestruction) {
         return;
     }
-    if (Transaction::Get(*this)) {
-        getDatabase()->transactionManager->rollback(*this, Transaction::Get(*this));
+    if (transaction::Transaction::Get(*this)) {
+        getDatabase()->transactionManager->rollback(*this, transaction::Transaction::Get(*this));
     }
 }
 
@@ -244,7 +244,7 @@ void ClientContext::addScalarFunction(std::string name, function::function_set d
     TransactionHelper::runFuncInTransaction(
         *transactionContext,
         [&]() {
-            localDatabase->catalog->addFunction(Transaction::Get(*this),
+            localDatabase->catalog->addFunction(transaction::Transaction::Get(*this),
                 CatalogEntryType::SCALAR_FUNCTION_ENTRY, std::move(name), std::move(definitions));
         },
         false /*readOnlyStatement*/, false /*isTransactionStatement*/,
@@ -254,7 +254,7 @@ void ClientContext::addScalarFunction(std::string name, function::function_set d
 void ClientContext::removeScalarFunction(const std::string& name) {
     TransactionHelper::runFuncInTransaction(
         *transactionContext,
-        [&]() { localDatabase->catalog->dropFunction(Transaction::Get(*this), name); },
+        [&]() { localDatabase->catalog->dropFunction(transaction::Transaction::Get(*this), name); },
         false /*readOnlyStatement*/, false /*isTransactionStatement*/,
         TransactionHelper::TransactionCommitAction::COMMIT_IF_NEW);
 }
@@ -521,7 +521,7 @@ std::unique_ptr<QueryResult> ClientContext::executeNoLock(PreparedStatement* pre
                 } else {
                     if (preparedStatement->getStatementType() == StatementType::COPY_FROM) {
                         // Note: We always force checkpoint for COPY_FROM statement.
-                        Transaction::Get(*this)->setForceCheckpoint();
+                        transaction::Transaction::Get(*this)->setForceCheckpoint();
                     }
                     result = localDatabase->queryProcessor->execute(physicalPlan.get(),
                         executionContext.get());

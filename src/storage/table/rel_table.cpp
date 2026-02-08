@@ -1,11 +1,16 @@
 #include "storage/table/rel_table.h"
 
 #include <algorithm>
+#include <atomic>
+#include <deque>
+#include <mutex>
+#include <thread>
 
 #include "catalog/catalog_entry/rel_group_catalog_entry.h"
 #include "common/exception/message.h"
 #include "common/exception/runtime.h"
 #include "common/types/types.h"
+#include "main/settings.h"
 #include "main/client_context.h"
 #include "storage/local_storage/local_rel_table.h"
 #include "storage/local_storage/local_storage.h"
@@ -322,6 +327,8 @@ void RelTable::detachDelete(Transaction* transaction, RelTableDeleteState* delet
 
 void RelTable::detachDeleteBatch(Transaction* transaction, ValueVector& srcNodeIDVector,
     ValueVector& dstNodeIDVector, ValueVector& relIDVector, RelDataDirection direction) {
+    KU_UNUSED(dstNodeIDVector);
+    KU_UNUSED(relIDVector);
     if (std::ranges::count(getStorageDirections(), direction) == 0) {
         return;
     }
@@ -337,60 +344,190 @@ void RelTable::detachDeleteBatch(Transaction* transaction, ValueVector& srcNodeI
         return;
     }
 
-    std::vector<offset_t> srcOffsets;
-    srcOffsets.reserve(numNodes);
+    std::vector<nodeID_t> srcNodeIDs;
+    srcNodeIDs.reserve(numNodes);
     for (auto i = 0u; i < numNodes; i++) {
         const auto pos = srcSelVec[i];
         if (!srcNodeIDVector.isNull(pos)) {
-            srcOffsets.push_back(srcNodeIDVector.getValue<nodeID_t>(pos).offset);
+            srcNodeIDs.push_back(srcNodeIDVector.getValue<nodeID_t>(pos));
+        }
+    }
+    if (srcNodeIDs.empty()) {
+        return;
+    }
+
+    struct RelDeleteRecord {
+        nodeID_t srcNodeID;
+        nodeID_t dstNodeID;
+        nodeID_t relID;
+        node_group_idx_t srcNodeGroupIdx;
+        node_group_idx_t dstNodeGroupIdx;
+    };
+
+    const auto maxThreads = transaction->getClientContext()
+                                ->getCurrentSetting(main::ThreadsSetting::name)
+                                .getValue<uint64_t>();
+    const auto numWorkers = std::min<size_t>(srcNodeIDs.size(), std::max<uint64_t>(1, maxThreads));
+    std::atomic<size_t> nextSrcNodeIdx{0};
+    std::mutex recordsMtx;
+    std::vector<RelDeleteRecord> records;
+
+    auto scanWorker = [&]() {
+        std::vector<RelDeleteRecord> localRecords;
+        while (true) {
+            const auto srcIdx = nextSrcNodeIdx.fetch_add(1);
+            if (srcIdx >= srcNodeIDs.size()) {
+                break;
+            }
+            const auto srcNodeID = srcNodeIDs[srcIdx];
+            const auto tempState = std::make_shared<DataChunkState>();
+            tempState->setToFlat();
+            ValueVector tempSrcNodeID(LogicalType::INTERNAL_ID());
+            tempSrcNodeID.setState(tempState);
+            tempSrcNodeID.setValue(0, srcNodeID);
+
+            const auto outState = std::make_shared<DataChunkState>();
+            ValueVector tempDstNodeIDVector(LogicalType::INTERNAL_ID());
+            ValueVector tempRelIDVector(LogicalType::INTERNAL_ID());
+            tempDstNodeIDVector.setState(outState);
+            tempRelIDVector.setState(outState);
+
+            auto relReadState = std::make_unique<RelTableScanState>(*memoryManager, &tempSrcNodeID,
+                std::vector<ValueVector*>{&tempDstNodeIDVector, &tempRelIDVector}, outState,
+                true /*randomLookup*/);
+            relReadState->setToTable(transaction, this, {NBR_ID_COLUMN_ID, REL_ID_COLUMN_ID}, {},
+                direction);
+            initScanState(transaction, *relReadState);
+
+            while (scan(transaction, *relReadState)) {
+                const auto& relSelVec = tempRelIDVector.state->getSelVector();
+                const auto numRelsScanned = relSelVec.getSelSize();
+                for (auto i = 0u; i < numRelsScanned; i++) {
+                    const auto pos = relSelVec[i];
+                    const auto dstNodeID = tempDstNodeIDVector.getValue<nodeID_t>(pos);
+                    localRecords.push_back(
+                        {srcNodeID, dstNodeID, tempRelIDVector.getValue<nodeID_t>(pos),
+                            StorageUtils::getNodeGroupIdx(srcNodeID.offset),
+                            StorageUtils::getNodeGroupIdx(dstNodeID.offset)});
+                }
+            }
+        }
+        if (!localRecords.empty()) {
+            std::lock_guard<std::mutex> lck{recordsMtx};
+            records.insert(records.end(), localRecords.begin(), localRecords.end());
+        }
+    };
+
+    if (numWorkers <= 1) {
+        scanWorker();
+    } else {
+        std::vector<std::thread> workers;
+        workers.reserve(numWorkers);
+        for (size_t i = 0; i < numWorkers; i++) {
+            workers.emplace_back(scanWorker);
+        }
+        for (auto& worker : workers) {
+            worker.join();
         }
     }
 
-    const auto tempState = std::make_shared<DataChunkState>();
-    tempState->setToFlat();
-    ValueVector tempSrcNodeID(LogicalType::INTERNAL_ID());
-    tempSrcNodeID.setState(tempState);
+    std::vector<RelDeleteRecord> localRelRecords;
+    std::vector<RelDeleteRecord> committedRelRecords;
+    localRelRecords.reserve(records.size());
+    committedRelRecords.reserve(records.size());
+    for (const auto& record : records) {
+        if (record.relID.offset >= StorageConstants::MAX_NUM_ROWS_IN_TABLE) {
+            localRelRecords.push_back(record);
+        } else {
+            committedRelRecords.push_back(record);
+        }
+    }
 
-    auto relReadState = std::make_unique<RelTableScanState>(*memoryManager, &tempSrcNodeID,
-        std::vector<ValueVector*>{&dstNodeIDVector, &relIDVector}, dstNodeIDVector.state,
-        true /*randomLookup*/);
-    relReadState->setToTable(transaction, this, {NBR_ID_COLUMN_ID, REL_ID_COLUMN_ID}, {}, direction);
-
-    for (const auto srcOffset : srcOffsets) {
-        nodeID_t srcNodeID{srcOffset, srcNodeIDVector.getValue<nodeID_t>(0).tableID};
-        tempSrcNodeID.setValue(0, srcNodeID);
-
-        initScanState(transaction, *relReadState);
-
-        const auto sharedState = dstNodeIDVector.state.get();
-        while (scan(transaction, *relReadState)) {
-            const auto numRelsScanned = sharedState->getSelVector().getSelSize();
-
-            if (sharedState->getSelVector().isUnfiltered()) {
-                sharedState->getSelVectorUnsafe().setRange(0, numRelsScanned);
+    std::unordered_map<node_group_idx_t, size_t> srcLockIdxByGroup;
+    std::deque<std::mutex> srcGroupLocks;
+    for (const auto& record : committedRelRecords) {
+        if (!srcLockIdxByGroup.contains(record.srcNodeGroupIdx)) {
+            srcLockIdxByGroup.insert({record.srcNodeGroupIdx, srcGroupLocks.size()});
+            srcGroupLocks.emplace_back();
+        }
+    }
+    std::unordered_map<node_group_idx_t, size_t> dstLockIdxByGroup;
+    std::deque<std::mutex> dstGroupLocks;
+    if (reverseTableData) {
+        for (const auto& record : committedRelRecords) {
+            if (!dstLockIdxByGroup.contains(record.dstNodeGroupIdx)) {
+                dstLockIdxByGroup.insert({record.dstNodeGroupIdx, dstGroupLocks.size()});
+                dstGroupLocks.emplace_back();
             }
-            sharedState->getSelVectorUnsafe().setToFiltered(1);
+        }
+    }
 
-            for (auto i = 0u; i < numRelsScanned; i++) {
-                sharedState->getSelVectorUnsafe()[0] = relIDVector.state->getSelVector()[i];
-
-                const auto relIDPos = relIDVector.state->getSelVector()[0];
-                const auto relOffset = relIDVector.readNodeOffset(relIDPos);
-                if (relOffset >= StorageConstants::MAX_NUM_ROWS_IN_TABLE) {
-                    KU_ASSERT(localTable);
-                    RelTableDeleteState localDeleteState{tempSrcNodeID, dstNodeIDVector, relIDVector,
-                        direction};
-                    localTable->delete_(transaction, localDeleteState);
-                    continue;
-                }
-                [[maybe_unused]] const auto deleted =
-                    tableData->delete_(transaction, tempSrcNodeID, relIDVector);
-                if (reverseTableData) {
-                    [[maybe_unused]] const auto reverseDeleted =
-                        reverseTableData->delete_(transaction, dstNodeIDVector, relIDVector);
-                }
+    const auto applyNumWorkers =
+        std::min<size_t>(committedRelRecords.size(), std::max<uint64_t>(1, maxThreads));
+    std::atomic<size_t> nextApplyIdx{0};
+    auto applyWorker = [&]() {
+        const auto writeState = std::make_shared<DataChunkState>();
+        writeState->setToFlat();
+        ValueVector writeSrcNodeIDVector(LogicalType::INTERNAL_ID());
+        ValueVector writeDstNodeIDVector(LogicalType::INTERNAL_ID());
+        ValueVector writeRelIDVector(LogicalType::INTERNAL_ID());
+        writeSrcNodeIDVector.setState(writeState);
+        writeDstNodeIDVector.setState(writeState);
+        writeRelIDVector.setState(writeState);
+        while (true) {
+            const auto idx = nextApplyIdx.fetch_add(1);
+            if (idx >= committedRelRecords.size()) {
+                break;
             }
-            sharedState->getSelVectorUnsafe().setToUnfiltered();
+            const auto& record = committedRelRecords[idx];
+            writeSrcNodeIDVector.setValue(0, record.srcNodeID);
+            writeDstNodeIDVector.setValue(0, record.dstNodeID);
+            writeRelIDVector.setValue(0, record.relID);
+            const auto srcLockIdx = srcLockIdxByGroup.at(record.srcNodeGroupIdx);
+            std::lock_guard<std::mutex> srcLck{srcGroupLocks[srcLockIdx]};
+            [[maybe_unused]] const auto deleted =
+                tableData->delete_(transaction, writeSrcNodeIDVector, writeRelIDVector);
+            if (reverseTableData) {
+                const auto dstLockIdx = dstLockIdxByGroup.at(record.dstNodeGroupIdx);
+                std::lock_guard<std::mutex> dstLck{dstGroupLocks[dstLockIdx]};
+                [[maybe_unused]] const auto reverseDeleted =
+                    reverseTableData->delete_(transaction, writeDstNodeIDVector, writeRelIDVector);
+            }
+        }
+    };
+
+    if (applyNumWorkers <= 1) {
+        applyWorker();
+    } else {
+        std::vector<std::thread> applyWorkers;
+        applyWorkers.reserve(applyNumWorkers);
+        for (size_t i = 0; i < applyNumWorkers; i++) {
+            applyWorkers.emplace_back(applyWorker);
+        }
+        for (auto& worker : applyWorkers) {
+            worker.join();
+        }
+    }
+
+    // Keep local rel deletes serial. Local table data structures are not designed for concurrent
+    // writes.
+    if (!localRelRecords.empty()) {
+        KU_ASSERT(localTable);
+        const auto writeState = std::make_shared<DataChunkState>();
+        writeState->setToFlat();
+        ValueVector writeSrcNodeIDVector(LogicalType::INTERNAL_ID());
+        ValueVector writeDstNodeIDVector(LogicalType::INTERNAL_ID());
+        ValueVector writeRelIDVector(LogicalType::INTERNAL_ID());
+        writeSrcNodeIDVector.setState(writeState);
+        writeDstNodeIDVector.setState(writeState);
+        writeRelIDVector.setState(writeState);
+        for (const auto& record : localRelRecords) {
+            writeSrcNodeIDVector.setValue(0, record.srcNodeID);
+            writeDstNodeIDVector.setValue(0, record.dstNodeID);
+            writeRelIDVector.setValue(0, record.relID);
+            RelTableDeleteState localDeleteState{writeSrcNodeIDVector, writeDstNodeIDVector,
+                writeRelIDVector, direction};
+            localTable->delete_(transaction, localDeleteState);
         }
     }
     hasChanges = true;

@@ -1,10 +1,16 @@
 #include "processor/operator/persistent/delete_executor.h"
 
+#include <atomic>
 #include <memory>
+#include <thread>
+#include <unordered_map>
+#include <vector>
 
 #include "common/assert.h"
 #include "common/exception/message.h"
 #include "common/vector/value_vector.h"
+#include "main/client_context.h"
+#include "main/settings.h"
 #include "processor/execution_context.h"
 #include "storage/table/rel_table.h"
 
@@ -14,6 +20,120 @@ using namespace lbug::transaction;
 
 namespace lbug {
 namespace processor {
+
+namespace {
+
+struct DetachDeleteWorkItem {
+    RelTable* relTable = nullptr;
+    bool runFwd = false;
+    bool runBwd = false;
+};
+
+template<typename FUNC>
+void runInParallel(uint64_t maxThreads, size_t numItems, FUNC&& func) {
+    if (numItems == 0) {
+        return;
+    }
+    if (numItems == 1 || maxThreads <= 1) {
+        func(0);
+        return;
+    }
+    const auto numWorkers = std::min<size_t>(numItems, maxThreads);
+    std::atomic<size_t> next{0};
+    std::vector<std::thread> workers;
+    workers.reserve(numWorkers);
+    for (size_t i = 0; i < numWorkers; ++i) {
+        workers.emplace_back([&]() {
+            while (true) {
+                const auto idx = next.fetch_add(1);
+                if (idx >= numItems) {
+                    break;
+                }
+                func(idx);
+            }
+        });
+    }
+    for (auto& worker : workers) {
+        worker.join();
+    }
+}
+
+void executeDetachDeleteWorkItem(const DetachDeleteWorkItem& item, Transaction* transaction,
+    ValueVector& srcNodeIDVector) {
+    if (!item.relTable) {
+        return;
+    }
+    const auto localState = std::make_shared<DataChunkState>();
+    ValueVector dstNodeIDVector(LogicalType::INTERNAL_ID());
+    ValueVector relIDVector(LogicalType::INTERNAL_ID());
+    dstNodeIDVector.setState(localState);
+    relIDVector.setState(localState);
+    if (item.runFwd) {
+        item.relTable->detachDeleteBatch(transaction, srcNodeIDVector, dstNodeIDVector, relIDVector,
+            RelDataDirection::FWD);
+    }
+    if (item.runBwd) {
+        item.relTable->detachDeleteBatch(transaction, srcNodeIDVector, dstNodeIDVector, relIDVector,
+            RelDataDirection::BWD);
+    }
+}
+
+std::vector<DetachDeleteWorkItem> buildWorkItems(const NodeTableDeleteInfo& tableInfo) {
+    std::unordered_map<RelTable*, size_t> workIdxByTable;
+    std::vector<DetachDeleteWorkItem> workItems;
+    workItems.reserve(tableInfo.fwdRelTables.size() + tableInfo.bwdRelTables.size());
+    for (auto& relTable : tableInfo.fwdRelTables) {
+        if (!workIdxByTable.contains(relTable)) {
+            workIdxByTable.insert({relTable, workItems.size()});
+            workItems.push_back({relTable, true, false});
+        } else {
+            workItems[workIdxByTable.at(relTable)].runFwd = true;
+        }
+    }
+    for (auto& relTable : tableInfo.bwdRelTables) {
+        if (!workIdxByTable.contains(relTable)) {
+            workIdxByTable.insert({relTable, workItems.size()});
+            workItems.push_back({relTable, false, true});
+        } else {
+            workItems[workIdxByTable.at(relTable)].runBwd = true;
+        }
+    }
+    return workItems;
+}
+
+std::vector<DetachDeleteWorkItem> buildWorkItems(
+    const common::table_id_map_t<NodeTableDeleteInfo>& tableInfos) {
+    std::unordered_map<RelTable*, size_t> workIdxByTable;
+    std::vector<DetachDeleteWorkItem> workItems;
+    for (auto& [_, tableInfo] : tableInfos) {
+        workItems.reserve(
+            workItems.size() + tableInfo.fwdRelTables.size() + tableInfo.bwdRelTables.size());
+        for (auto& relTable : tableInfo.fwdRelTables) {
+            if (!workIdxByTable.contains(relTable)) {
+                workIdxByTable.insert({relTable, workItems.size()});
+                workItems.push_back({relTable, true, false});
+            } else {
+                workItems[workIdxByTable.at(relTable)].runFwd = true;
+            }
+        }
+        for (auto& relTable : tableInfo.bwdRelTables) {
+            if (!workIdxByTable.contains(relTable)) {
+                workIdxByTable.insert({relTable, workItems.size()});
+                workItems.push_back({relTable, false, true});
+            } else {
+                workItems[workIdxByTable.at(relTable)].runBwd = true;
+            }
+        }
+    }
+    return workItems;
+}
+
+uint64_t getNumDeleteWorkerThreads(ExecutionContext* context) {
+    return context->clientContext->getCurrentSetting(main::ThreadsSetting::name)
+        .getValue<uint64_t>();
+}
+
+} // namespace
 
 void NodeDeleteInfo::init(const ResultSet& resultSet) {
     nodeIDVector = resultSet.getValueVector(nodeIDPos).get();
@@ -82,24 +202,19 @@ void NodeDeleteExecutor::finalize(ExecutionContext* context) {
     }
 }
 
-void SingleLabelNodeDeleteExecutor::flushBatch([[maybe_unused]] ExecutionContext* context,
+void SingleLabelNodeDeleteExecutor::flushBatch(ExecutionContext* context,
     transaction::Transaction* transaction) {
     const auto batchState = std::make_shared<DataChunkState>();
     batchSrcNodeIDVector->setState(batchState);
-    batchDstNodeIDVector->setState(batchState);
-    batchRelIDVector->setState(batchState);
     batchState->getSelVectorUnsafe().setSelSize(batchNodeIDs.size());
     for (size_t i = 0; i < batchNodeIDs.size(); i++) {
         batchSrcNodeIDVector->setValue(i, batchNodeIDs[i]);
     }
-    for (auto& relTable : tableInfo.fwdRelTables) {
-        relTable->detachDeleteBatch(transaction, *batchSrcNodeIDVector, *batchDstNodeIDVector,
-            *batchRelIDVector, RelDataDirection::FWD);
-    }
-    for (auto& relTable : tableInfo.bwdRelTables) {
-        relTable->detachDeleteBatch(transaction, *batchSrcNodeIDVector, *batchDstNodeIDVector,
-            *batchRelIDVector, RelDataDirection::BWD);
-    }
+    const auto workItems = buildWorkItems(tableInfo);
+    const auto maxThreads = getNumDeleteWorkerThreads(context);
+    runInParallel(maxThreads, workItems.size(), [&](size_t idx) {
+        executeDetachDeleteWorkItem(workItems[idx], transaction, *batchSrcNodeIDVector);
+    });
 }
 
 void SingleLabelNodeDeleteExecutor::delete_(ExecutionContext* context) {
@@ -137,26 +252,19 @@ void MultiLabelNodeDeleteExecutor::init(ResultSet* resultSet, ExecutionContext* 
     }
 }
 
-void MultiLabelNodeDeleteExecutor::flushBatch([[maybe_unused]] ExecutionContext* context,
+void MultiLabelNodeDeleteExecutor::flushBatch(ExecutionContext* context,
     transaction::Transaction* transaction) {
     const auto batchState = std::make_shared<DataChunkState>();
     batchSrcNodeIDVector->setState(batchState);
-    batchDstNodeIDVector->setState(batchState);
-    batchRelIDVector->setState(batchState);
     batchState->getSelVectorUnsafe().setSelSize(batchNodeIDs.size());
     for (size_t i = 0; i < batchNodeIDs.size(); i++) {
         batchSrcNodeIDVector->setValue(i, batchNodeIDs[i]);
     }
-    for (auto& [_, tblInfo] : tableInfos) {
-        for (auto& relTable : tblInfo.fwdRelTables) {
-            relTable->detachDeleteBatch(transaction, *batchSrcNodeIDVector, *batchDstNodeIDVector,
-                *batchRelIDVector, RelDataDirection::FWD);
-        }
-        for (auto& relTable : tblInfo.bwdRelTables) {
-            relTable->detachDeleteBatch(transaction, *batchSrcNodeIDVector, *batchDstNodeIDVector,
-                *batchRelIDVector, RelDataDirection::BWD);
-        }
-    }
+    const auto workItems = buildWorkItems(tableInfos);
+    const auto maxThreads = getNumDeleteWorkerThreads(context);
+    runInParallel(maxThreads, workItems.size(), [&](size_t idx) {
+        executeDetachDeleteWorkItem(workItems[idx], transaction, *batchSrcNodeIDVector);
+    });
 }
 
 void MultiLabelNodeDeleteExecutor::delete_(ExecutionContext* context) {

@@ -25,6 +25,9 @@ std::unique_ptr<Statement> Transformer::transformTransaction(
     if (ctx.CHECKPOINT()) {
         return std::make_unique<TransactionStatement>(TransactionAction::CHECKPOINT);
     }
+    if (ctx.VACUUM()) {
+        return std::make_unique<TransactionStatement>(TransactionAction::VACUUM_DATABASE);
+    }
     KU_UNREACHABLE;
 }
 

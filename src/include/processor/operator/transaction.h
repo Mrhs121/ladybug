@@ -1,5 +1,8 @@
 #pragma once
 
+#include <string>
+#include <vector>
+
 #include "processor/operator/physical_operator.h"
 #include "transaction/transaction_action.h"
 
@@ -7,6 +10,10 @@ namespace lbug {
 namespace transaction {
 class TransactionContext;
 } // namespace transaction
+namespace main {
+class ClientContext;
+class QueryResult;
+} // namespace main
 
 namespace processor {
 
@@ -49,6 +56,11 @@ public:
     }
 
 private:
+    std::unique_ptr<main::QueryResult> runQueryNoLock(main::ClientContext* clientContext,
+        const std::string& query, const std::string& phase) const;
+    std::vector<std::string> collectFirstColumn(main::ClientContext* clientContext,
+        const std::string& query, const std::string& phase) const;
+    void vacuumDatabase(main::ClientContext* clientContext) const;
     void validateActiveTransaction(const transaction::TransactionContext& context) const;
 
 private:

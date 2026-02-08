@@ -40,6 +40,7 @@ class StorageManager;
 
 namespace processor {
 class ImportDB;
+class VacuumDBHelper;
 class WarningContext;
 } // namespace processor
 
@@ -74,6 +75,7 @@ class LBUG_API ClientContext {
     friend class EmbeddedShell;
     friend struct SpillToDiskSetting;
     friend class processor::ImportDB;
+    friend class processor::VacuumDBHelper;
     friend class processor::WarningContext;
     friend class transaction::TransactionContext;
     friend class common::RandomEngine;

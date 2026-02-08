@@ -37,15 +37,15 @@ public:
     SHORTEST = 132, START = 133, STARTS = 134, STRUCT = 135, TABLE = 136, 
     THEN = 137, TO = 138, TRAIL = 139, TRANSACTION = 140, TRUE = 141, TYPE = 142, 
     UNION = 143, UNWIND = 144, UNINSTALL = 145, UPDATE = 146, USE = 147, 
-    WHEN = 148, WHERE = 149, WITH = 150, WRITE = 151, WSHORTEST = 152, XOR = 153, 
-    SINGLE = 154, YIELD = 155, USER = 156, PASSWORD = 157, ROLE = 158, MAP = 159, 
-    UPSERT = 160, DECIMAL = 161, STAR = 162, L_SKIP = 163, INVALID_NOT_EQUAL = 164, 
-    COLON = 165, DOTDOT = 166, MINUS = 167, FACTORIAL = 168, StringLiteral = 169, 
-    EscapedChar = 170, DecimalInteger = 171, HexLetter = 172, HexDigit = 173, 
-    Digit = 174, NonZeroDigit = 175, NonZeroOctDigit = 176, ZeroDigit = 177, 
-    ExponentDecimalReal = 178, RegularDecimalReal = 179, UnescapedSymbolicName = 180, 
-    IdentifierStart = 181, IdentifierPart = 182, EscapedSymbolicName = 183, 
-    SP = 184, WHITESPACE = 185, CypherComment = 186, Unknown = 187
+    VACUUM = 148, WHEN = 149, WHERE = 150, WITH = 151, WRITE = 152, WSHORTEST = 153, 
+    XOR = 154, SINGLE = 155, YIELD = 156, USER = 157, PASSWORD = 158, ROLE = 159, 
+    MAP = 160, UPSERT = 161, DECIMAL = 162, STAR = 163, L_SKIP = 164, INVALID_NOT_EQUAL = 165, 
+    COLON = 166, DOTDOT = 167, MINUS = 168, FACTORIAL = 169, StringLiteral = 170, 
+    EscapedChar = 171, DecimalInteger = 172, HexLetter = 173, HexDigit = 174, 
+    Digit = 175, NonZeroDigit = 176, NonZeroOctDigit = 177, ZeroDigit = 178, 
+    ExponentDecimalReal = 179, RegularDecimalReal = 180, UnescapedSymbolicName = 181, 
+    IdentifierStart = 182, IdentifierPart = 183, EscapedSymbolicName = 184, 
+    SP = 185, WHITESPACE = 186, CypherComment = 187, Unknown = 188
   };
 
   enum {
@@ -1350,6 +1350,8 @@ public:
     antlr4::tree::TerminalNode *COMMIT();
     antlr4::tree::TerminalNode *ROLLBACK();
     antlr4::tree::TerminalNode *CHECKPOINT();
+    antlr4::tree::TerminalNode *VACUUM();
+    antlr4::tree::TerminalNode *DATABASE();
 
    
   };
@@ -3043,6 +3045,7 @@ public:
     antlr4::tree::TerminalNode *RENAME();
     antlr4::tree::TerminalNode *RETURN();
     antlr4::tree::TerminalNode *ROLLBACK();
+    antlr4::tree::TerminalNode *VACUUM();
     antlr4::tree::TerminalNode *ROLE();
     antlr4::tree::TerminalNode *SEQUENCE();
     antlr4::tree::TerminalNode *SET();

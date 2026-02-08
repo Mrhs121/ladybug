@@ -22,6 +22,9 @@ std::string TransactionActionUtils::toString(TransactionAction action) {
     case TransactionAction::CHECKPOINT: {
         return "CHECKPOINT";
     }
+    case TransactionAction::VACUUM_DATABASE: {
+        return "VACUUM_DATABASE";
+    }
     default:
         KU_UNREACHABLE;
     }

@@ -220,6 +220,8 @@ UPDATE : ( 'U' | 'u' ) ( 'P' | 'p' ) ( 'D' | 'd' ) ( 'A' | 'a' ) ( 'T' | 't' ) (
 
 USE : ( 'U' | 'u' ) ( 'S' | 's' ) ( 'E' | 'e' ) ;
 
+VACUUM : ( 'V' | 'v' ) ( 'A' | 'a' ) ( 'C' | 'c' ) ( 'U' | 'u' ) ( 'U' | 'u' ) ( 'M' | 'm' ) ;
+
 WHEN : ( 'W' | 'w' ) ( 'H' | 'h' ) ( 'E' | 'e' ) ( 'N' | 'n' ) ;
 
 WHERE : ( 'W' | 'w' ) ( 'H' | 'h' ) ( 'E' | 'e' ) ( 'R' | 'r' ) ( 'E' | 'e' ) ;
@@ -491,7 +493,8 @@ kU_Transaction
         | BEGIN SP TRANSACTION SP READ SP ONLY
         | COMMIT
         | ROLLBACK
-        | CHECKPOINT;
+        | CHECKPOINT
+        | VACUUM SP DATABASE;
 
 kU_Extension
     : kU_LoadExtension
@@ -1024,6 +1027,7 @@ kU_NonReservedKeywords
         | RENAME
         | RETURN
         | ROLLBACK
+        | VACUUM
         | ROLE
         | SEQUENCE
         | SET
