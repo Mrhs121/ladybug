@@ -1,5 +1,5 @@
 // !!! DO NOT EDIT - THIS IS AN AUTO-GENERATED FILE !!!
-// Created by amalgamation.sh on 2026-02-21T23:03:39Z
+// Created by amalgamation.sh on 2026-02-24T02:08:17Z
 
 /*
  * The CRoaring project is under a dual license (Apache/MIT).
@@ -664,20 +664,8 @@ static inline uint32_t croaring_refcount_get(const croaring_refcount_t *val) {
 
 #if defined(__cplusplus)
 #define CROARING_STATIC_ASSERT(x, y) static_assert(x, y)
-#elif defined(_MSC_VER) && !defined(__clang__)
-#define CROARING_STATIC_ASSERT(x, y) static_assert(x, y)
 #else
 #define CROARING_STATIC_ASSERT(x, y) _Static_assert(x, y)
-#endif
-
-// On MSVC, use compiler builtin directly.
-#if defined(_MSC_VER) && !defined(__clang__)
-#define CROARING_ALIGNOF(x) (__alignof(x))
-#elif defined(__cplusplus)
-#define CROARING_ALIGNOF(x) alignof(x)
-#else
-#include <stdalign.h>
-#define CROARING_ALIGNOF(x) alignof(x)
 #endif
 
 // We need portability.h to be included first,
