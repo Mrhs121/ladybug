@@ -68,4 +68,4 @@ By contributing to Ladybug, you agree that your contributions will be licensed u
 ## Contact
 You can contact us at [social@ladybugdb.com](mailto:social@ladybugdb.com) or [join our Discord community](https://discord.com/invite/hXyHmvW3Vy).
 
-## Note: The function of this branch is in the beta stage. Be cautious when installing it in the production environment
+## Note: The function of this branch is in the beta stage. Be cautious when installing it in the production environment. This branch automatically rebases the upstream changes to the local machine every day
