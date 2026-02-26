@@ -1174,7 +1174,7 @@ JNIEXPORT jlong JNICALL Java_com_ladybugdb_Native_lbugValueCreateValue(JNIEnv* e
             uint64_t lower =
                 static_cast<uint64_t>(env->CallLongMethod(val, J_C_UUID_M_getLeastSignificantBits));
             int128_t uuidValue(lower, upper ^ (int64_t(1) << 63));
-            v = new Value(common::uuid{uuidValue});
+            v = new Value(uuid{uuidValue});
         } else if (env->IsInstanceOf(val, J_C_LocalDate)) {
             int64_t days =
                 static_cast<int64_t>(env->CallLongMethod(val, J_C_LocalDate_M_toEpochDay));
