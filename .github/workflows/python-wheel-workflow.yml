@@ -96,7 +96,7 @@ jobs:
       CIBW_MANYLINUX_AARCH64_IMAGE: ${{ matrix.os == 'linux' && format('manylinux{0}', matrix.manylinux) || '' }}
 
       # Set deployment target for macOS, and Windows MSVC setup
-      CIBW_ENVIRONMENT_WINDOWS: DISTUTILS_USE_SDK=1 MSSdk=1
+      CIBW_ENVIRONMENT_WINDOWS: DISTUTILS_USE_SDK=1 MSSdk=1 TMP=D:\t TEMP=D:\t
       CIBW_ENVIRONMENT_MACOS: ${{ matrix.os == 'macos' && format('MACOSX_DEPLOYMENT_TARGET={0}', matrix.deployment-target) || '' }}
 
     steps:
@@ -158,6 +158,8 @@ jobs:
           echo CMAKE_CXX_COMPILER_LAUNCHER=ccache>> %GITHUB_ENV%
           echo CCACHE_DIR=D:\c>> %GITHUB_ENV%
           echo CCACHE_TEMPDIR=D:\t>> %GITHUB_ENV%
+          echo TMP=D:\t>> %GITHUB_ENV%
+          echo TEMP=D:\t>> %GITHUB_ENV%
           if not exist D:\c mkdir D:\c
           if not exist D:\t mkdir D:\t
           ccache --set-config=max_size=2G
