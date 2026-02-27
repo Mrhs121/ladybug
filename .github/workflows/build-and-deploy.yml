@@ -161,6 +161,8 @@ jobs:
       - name: Deploy to PyPI
         if: ${{ github.event_name == 'schedule' || github.event.inputs.isDeploy == 'true' }}
         uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          skip-existing: true
   
   deploy-rust:
     if: ${{ github.event_name == 'schedule' || github.event.inputs.skipRust != 'true' }}
@@ -370,12 +372,32 @@ jobs:
 
       - name: Deploy to npm.js dry run
         if: ${{ github.event_name != 'schedule' && github.event.inputs.isDeploy != 'true' }}
-        run: npm publish lbug-source.tar.gz --access public --dry-run
+        run: |
+          TAG=latest
+          if [ "${{ github.event.inputs.isNightly }}" = "true" ]; then
+            TAG=next
+          fi
+          npm publish lbug-source.tar.gz --access public --tag "${TAG}" --dry-run
         working-directory: tools/nodejs_api
 
       - name: Deploy nightly to npm.js
         if: ${{ github.event_name == 'schedule' || (github.event.inputs.isDeploy == 'true' && github.event.inputs.isNightly == 'true') }}
-        run: npm publish lbug-source.tar.gz --access public --tag next
+        run: |
+          NIGHTLY_TAG="nightly-$(date -u +%Y%m%d)"
+          PACKAGE_NAME="$(tar -xOf lbug-source.tar.gz package/package.json | node -e "const fs=require('fs'); const pkg=JSON.parse(fs.readFileSync(0,'utf8')); process.stdout.write(pkg.name)")"
+          PACKAGE_VERSION="$(tar -xOf lbug-source.tar.gz package/package.json | node -e "const fs=require('fs'); const pkg=JSON.parse(fs.readFileSync(0,'utf8')); process.stdout.write(pkg.version)")"
+          PACKAGE_REF="${PACKAGE_NAME}@${PACKAGE_VERSION}"
+          echo "Nightly tag: ${NIGHTLY_TAG}"
+          echo "Package ref: ${PACKAGE_REF}"
+
+          if npm view "${PACKAGE_REF}" version >/dev/null 2>&1; then
+            echo "Package version already exists on npm; updating dist-tags only."
+          else
+            npm publish lbug-source.tar.gz --access public --tag "${NIGHTLY_TAG}"
+          fi
+
+          npm dist-tag add "${PACKAGE_REF}" "${NIGHTLY_TAG}"
+          npm dist-tag add "${PACKAGE_REF}" next
         working-directory: tools/nodejs_api
 
       - name: Deploy to npm.js
@@ -415,12 +437,32 @@ jobs:
 
       - name: Deploy to npm.js dry run
         if: ${{ github.event_name != 'schedule' && github.event.inputs.isDeploy != 'true' }}
-        run: npm publish lbug-wasm.tar.gz --access public --dry-run
+        run: |
+          TAG=latest
+          if [ "${{ github.event.inputs.isNightly }}" = "true" ]; then
+            TAG=next
+          fi
+          npm publish lbug-wasm.tar.gz --access public --tag "${TAG}" --dry-run
         working-directory: tools/wasm
 
       - name: Deploy nightly to npm.js
         if: ${{ github.event_name == 'schedule' || (github.event.inputs.isDeploy == 'true' && github.event.inputs.isNightly == 'true') }}
-        run: npm publish lbug-wasm.tar.gz --access public --tag next
+        run: |
+          NIGHTLY_TAG="nightly-$(date -u +%Y%m%d)"
+          PACKAGE_NAME="$(tar -xOf lbug-wasm.tar.gz package/package.json | node -e "const fs=require('fs'); const pkg=JSON.parse(fs.readFileSync(0,'utf8')); process.stdout.write(pkg.name)")"
+          PACKAGE_VERSION="$(tar -xOf lbug-wasm.tar.gz package/package.json | node -e "const fs=require('fs'); const pkg=JSON.parse(fs.readFileSync(0,'utf8')); process.stdout.write(pkg.version)")"
+          PACKAGE_REF="${PACKAGE_NAME}@${PACKAGE_VERSION}"
+          echo "Nightly tag: ${NIGHTLY_TAG}"
+          echo "Package ref: ${PACKAGE_REF}"
+
+          if npm view "${PACKAGE_REF}" version >/dev/null 2>&1; then
+            echo "Package version already exists on npm; updating dist-tags only."
+          else
+            npm publish lbug-wasm.tar.gz --access public --tag "${NIGHTLY_TAG}"
+          fi
+
+          npm dist-tag add "${PACKAGE_REF}" "${NIGHTLY_TAG}"
+          npm dist-tag add "${PACKAGE_REF}" next
         working-directory: tools/wasm
 
       - name: Deploy to npm.js
