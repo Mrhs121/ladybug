@@ -88,15 +88,15 @@ jobs:
       CIBW_PLATFORM: ${{ matrix.os }}
       CIBW_BUILD: "cp310-* cp311-* cp312-* cp313-* cp314-*"
 
-      # Let CIBW detect the arch from the runner
-      CIBW_ARCHS: ${{ matrix.os == 'windows' && 'AMD64' || 'auto' }}
+      # Let CIBW detect the arch, except explicitly set Windows wheel arch per matrix
+      CIBW_ARCHS: ${{ matrix.os == 'windows' && (matrix.platform == 'arm64' && 'ARM64' || 'AMD64') || 'auto' }}
 
       # Set the manylinux image based on the detected arch (Linux only)
       CIBW_MANYLINUX_X86_64_IMAGE: ${{ matrix.os == 'linux' && format('manylinux{0}', matrix.manylinux) || '' }}
       CIBW_MANYLINUX_AARCH64_IMAGE: ${{ matrix.os == 'linux' && format('manylinux{0}', matrix.manylinux) || '' }}
 
       # Set deployment target for macOS, and Windows MSVC setup
-      CIBW_ENVIRONMENT_WINDOWS: DISTUTILS_USE_SDK=1 MSSdk=1 TMP=D:/t TEMP=D:/t
+      CIBW_ENVIRONMENT_WINDOWS: ${{ matrix.os == 'windows' && format('DISTUTILS_USE_SDK=1 MSSdk=1 TMP={0} TEMP={0}', matrix.platform == 'arm64' && 'C:/t' || 'D:/t') || '' }}
       CIBW_ENVIRONMENT_MACOS: ${{ matrix.os == 'macos' && format('MACOSX_DEPLOYMENT_TARGET={0}', matrix.deployment-target) || '' }}
 
     steps:
@@ -154,27 +154,35 @@ jobs:
         shell: cmd
         run: |
           choco install ccache -y
+          REM windows-11-arm runners do not reliably provide a D: drive, so ARM uses C:.
+          if "${{ matrix.platform }}"=="arm64" (
+            set "LB_CCACHE_DIR=C:\c"
+            set "LB_CCACHE_TEMPDIR=C:\t"
+          ) else (
+            set "LB_CCACHE_DIR=D:\c"
+            set "LB_CCACHE_TEMPDIR=D:\t"
+          )
           echo CMAKE_C_COMPILER_LAUNCHER=ccache>> %GITHUB_ENV%
           echo CMAKE_CXX_COMPILER_LAUNCHER=ccache>> %GITHUB_ENV%
-          echo CCACHE_DIR=D:\c>> %GITHUB_ENV%
-          echo CCACHE_TEMPDIR=D:/t>> %GITHUB_ENV%
-          echo TMP=D:/t>> %GITHUB_ENV%
-          echo TEMP=D:/t>> %GITHUB_ENV%
-          if not exist D:\c mkdir D:\c
-          if not exist D:\t mkdir D:\t
+          echo CCACHE_DIR=%LB_CCACHE_DIR%>> %GITHUB_ENV%
+          echo CCACHE_TEMPDIR=%LB_CCACHE_TEMPDIR%>> %GITHUB_ENV%
+          echo TMP=%LB_CCACHE_TEMPDIR%>> %GITHUB_ENV%
+          echo TEMP=%LB_CCACHE_TEMPDIR%>> %GITHUB_ENV%
+          if not exist "%LB_CCACHE_DIR%" mkdir "%LB_CCACHE_DIR%"
+          if not exist "%LB_CCACHE_TEMPDIR%" mkdir "%LB_CCACHE_TEMPDIR%"
           ccache --set-config=max_size=2G
           ccache --set-config=compression=true
-          ccache --set-config=cache_dir=D:\c
-          ccache --set-config=temporary_dir=D:\t
+          ccache --set-config=cache_dir=%LB_CCACHE_DIR%
+          ccache --set-config=temporary_dir=%LB_CCACHE_TEMPDIR%
 
       - name: Cache ccache directory (Windows)
         if: matrix.os == 'windows'
         uses: actions/cache@v4
         with:
-          path: D:\c
-          key: ${{ runner.os }}-ccache-wheel-${{ hashFiles('**/CMakeLists.txt', '**/*.cpp', '**/*.h') }}
+          path: ${{ matrix.platform == 'arm64' && 'C:/c' || 'D:/c' }}
+          key: ${{ runner.os }}-${{ matrix.platform }}-ccache-wheel-${{ hashFiles('**/CMakeLists.txt', '**/*.cpp', '**/*.h') }}
           restore-keys: |
-            ${{ runner.os }}-ccache-wheel-
+            ${{ runner.os }}-${{ matrix.platform }}-ccache-wheel-
 
       - name: Build wheels on ${{ matrix.platform }} (Windows)
         if: matrix.os == 'windows'
