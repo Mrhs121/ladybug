@@ -78,12 +78,6 @@ jobs:
             os: windows
             deployment-target: ''
 
-          # Job 6: Windows arm64 build
-          - platform: arm64
-            runner: windows-11-arm
-            os: windows
-            deployment-target: ''
-
     env:
       CIBW_PLATFORM: ${{ matrix.os }}
       CIBW_BUILD: "cp310-* cp311-* cp312-* cp313-* cp314-*"
