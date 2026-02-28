@@ -12,42 +12,37 @@
 namespace lbug {
 namespace storage {
 
-// Shared state to coordinate row group/batch assignment across parallel scan states
-struct ColumnarNodeTableSharedState {
-    std::mutex mtx;
-    common::node_group_idx_t currentBatchIdx = 0;
-    common::node_group_idx_t numBatches = 0;
+// Abstract class : State to track table scan
+struct ColumnarNodeTableScanState : NodeTableScanState {
+    bool initialized = false; // Track if this scan state has been initialized for scanning
+    size_t totalRows = 0;
+    bool scanCompleted = false; // Track if this scan state has finished reading
 
-    void reset(common::node_group_idx_t totalBatches) {
-        std::lock_guard<std::mutex> lock(mtx);
-        currentBatchIdx = 0;
-        numBatches = totalBatches;
-    }
+    ColumnarNodeTableScanState([[maybe_unused]] MemoryManager& mm,
+        common::ValueVector* nodeIDVector, std::vector<common::ValueVector*> outputVectors,
+        std::shared_ptr<common::DataChunkState> outChunkState)
+        : NodeTableScanState{nodeIDVector, std::move(outputVectors), std::move(outChunkState)} {}
+};
 
-    bool getNextBatch(common::node_group_idx_t& assignedBatchIdx) {
-        std::lock_guard<std::mutex> lock(mtx);
-        if (currentBatchIdx < numBatches) {
-            assignedBatchIdx = currentBatchIdx++;
-            return true;
-        }
-        return false;
-    }
+// Interface: Shared state to coordinate morsel assignment across parallel scan states
+// batch - RowGroup for Parquet, RecordBatch for Arrow
+struct ColumnarNodeTableScanSharedState {
+    virtual ~ColumnarNodeTableScanSharedState() = default;
+
+    virtual bool getNextMorsel(ColumnarNodeTableScanState* scanState) = 0;
 };
 
 // Abstract base class for columnar-format node tables (Parquet, Arrow, etc.)
 class ColumnarNodeTableBase : public NodeTable {
 public:
     ColumnarNodeTableBase(const StorageManager* storageManager,
-        const catalog::NodeTableCatalogEntry* nodeTableEntry, MemoryManager* memoryManager)
+        const catalog::NodeTableCatalogEntry* nodeTableEntry, MemoryManager* memoryManager,
+        std::unique_ptr<ColumnarNodeTableScanSharedState> tableScanSharedState)
         : NodeTable{storageManager, nodeTableEntry, memoryManager},
-          nodeTableCatalogEntry{nodeTableEntry} {
-        sharedState = std::make_unique<ColumnarNodeTableSharedState>();
-    }
+          nodeTableCatalogEntry{nodeTableEntry},
+          tableScanSharedState{std::move(tableScanSharedState)} {}
 
     virtual ~ColumnarNodeTableBase() = default;
-
-    // Override to reset shared state for batch coordination at the start of each scan operation
-    void initializeScanCoordination(const transaction::Transaction* transaction) override;
 
     // Columnar tables don't support modifications
     void insert([[maybe_unused]] transaction::Transaction* transaction,
@@ -73,7 +68,7 @@ public:
 
 protected:
     const catalog::NodeTableCatalogEntry* nodeTableCatalogEntry;
-    mutable std::unique_ptr<ColumnarNodeTableSharedState> sharedState;
+    mutable std::unique_ptr<ColumnarNodeTableScanSharedState> tableScanSharedState;
 
     // Template method pattern: subclasses implement format-specific operations
     virtual std::string getColumnarFormatName() const = 0;
@@ -89,11 +84,9 @@ protected:
     }
 
 public:
-    // Apply semi-mask filter to selection vector
-    // startNodeOffset: starting node offset in the table for this scan batch
-    // numRowsToScan: number of rows being scanned
-    void applySemiMaskFilter(const TableScanState& state, common::row_idx_t startNodeOffset,
-        common::row_idx_t numRowsToScan, common::SelectionVector& selVector) const;
+    ColumnarNodeTableScanSharedState* getTableScanSharedState() const {
+        return tableScanSharedState.get();
+    }
 };
 
 } // namespace storage

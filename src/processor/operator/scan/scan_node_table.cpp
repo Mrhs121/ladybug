@@ -56,8 +56,9 @@ void ScanNodeTableSharedState::initialize(const transaction::Transaction* transa
             this->numCommittedNodeGroups = 1;
         }
     } else if (const auto arrowTable = dynamic_cast<ArrowNodeTable*>(table)) {
-        // For Arrow tables, set numCommittedNodeGroups to number of batches
-        this->numCommittedNodeGroups = arrowTable->getNumBatches(transaction);
+        // For Arrow tables, set numCommittedNodeGroups to number of morsels
+        this->numCommittedNodeGroups =
+            static_cast<common::node_group_idx_t>(arrowTable->getNumScanMorsels(transaction));
     } else {
         this->numCommittedNodeGroups = table->getNumCommittedNodeGroups();
     }
@@ -68,17 +69,31 @@ void ScanNodeTableSharedState::initialize(const transaction::Transaction* transa
             this->numUnCommittedNodeGroups = localNodeTable.getNumNodeGroups();
         }
     }
-    progressSharedState.numGroups += numCommittedNodeGroups;
+    progressSharedState.numMorsels += numCommittedNodeGroups;
 }
 
 void ScanNodeTableSharedState::nextMorsel(TableScanState& scanState,
     ScanNodeTableProgressSharedState& progressSharedState) {
     std::unique_lock lck{mtx};
-    // Cast to NodeTableScanState since we know this is for node tables
+
+    // ColumnarNodeTables handle morsel assignment internally
+    // TODO: parquet tables https://github.com/LadybugDB/ladybug/issues/245
+    if (const auto arrowTable = dynamic_cast<ArrowNodeTable*>(this->table)) {
+        const auto tableSharedState = arrowTable->getTableScanSharedState();
+        if (tableSharedState->getNextMorsel(static_cast<ColumnarNodeTableScanState*>(&scanState))) {
+            scanState.source = TableScanSource::COMMITTED;
+            progressSharedState.numMorselsScanned++;
+        } else {
+            scanState.source = TableScanSource::NONE;
+        }
+
+        return;
+    }
+
     auto& nodeScanState = scanState.cast<NodeTableScanState>();
     if (currentCommittedGroupIdx < numCommittedNodeGroups) {
         nodeScanState.nodeGroupIdx = currentCommittedGroupIdx++;
-        progressSharedState.numGroupsScanned++;
+        progressSharedState.numMorselsScanned++;
         nodeScanState.source = TableScanSource::COMMITTED;
         return;
     }
@@ -181,11 +196,11 @@ double ScanNodeTable::getProgress(ExecutionContext* /*context*/) const {
     if (currentTableIdx >= tableInfos.size()) {
         return 1.0;
     }
-    if (progressSharedState->numGroups == 0) {
+    if (progressSharedState->numMorsels == 0) {
         return 0.0;
     }
-    return static_cast<double>(progressSharedState->numGroupsScanned) /
-           progressSharedState->numGroups;
+    return static_cast<double>(progressSharedState->numMorselsScanned) /
+           progressSharedState->numMorsels;
 }
 
 } // namespace processor
