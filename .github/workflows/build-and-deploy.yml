@@ -84,7 +84,7 @@ jobs:
           path: scripts/version.txt
 
   build-extension:
-    if: ${{ github.event_name == 'schedule' && github.event.inputs.skipExtensions != 'true' }}
+    if: ${{ github.event_name == 'schedule' || github.event.inputs.skipExtensions != 'true' }}
     uses: ./.github/workflows/build-and-deploy-extension.yml
     with:
       isNightly: ${{ github.event_name == 'schedule' || github.event.inputs.isNightly == 'true' }}
