@@ -310,6 +310,8 @@ jobs:
     if: ${{ github.event_name == 'schedule' || github.event.inputs.skipNodejs != 'true' }}
     needs: [build-nodejs]
     runs-on: ubuntu-latest
+    env:
+      NODE_AUTH_TOKEN: ${{ secrets.NPM_JS_TOKEN }}
     steps:
       - uses: actions/checkout@v4
 
