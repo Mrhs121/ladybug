@@ -40,8 +40,8 @@ The database was formerly known as [Kuzu](https://github.com/kuzudb/kuzu).
 
 | Language | Installation                                                           |
 | -------- |------------------------------------------------------------------------|
-| Python   | `pip install real_ladybug`                                                     |
-| NodeJS   | `npm install lbug`                                                     |
+| Python   | `pip install real_ladybug`                                             |
+| NodeJS   | `npm install @ladybug/core`                                            |
 | Rust     | `cargo add lbug`                                                       |
 | Go       | `go get github.com/lbugdb/go-ladybug`                                     |
 | Swift    | [lbug-swift](https://github.com/lbugdb/swift-ladybug)                     |
