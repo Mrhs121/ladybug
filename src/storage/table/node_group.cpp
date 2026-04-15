@@ -481,7 +481,7 @@ std::unique_ptr<ChunkedNodeGroup> NodeGroup::checkpointInMemAndOnDisk(MemoryMana
         std::vector<ChunkCheckpointState> chunkCheckpointStates;
         if (columnHasUpdates) {
             scanCommittedUpdatesForColumn(chunkCheckpointStates, memoryManager, lock, columnID,
-                state.columns[columnID], txn);
+                state.columns[i], txn);
         }
         if (numInsertedRows > 0) {
             chunkCheckpointStates.emplace_back(insertChunkedGroup->moveColumnChunk(columnID),
