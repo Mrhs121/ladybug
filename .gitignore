@@ -1,6 +1,7 @@
 tree-sitter/
 tree-sitter-cypher/
 
+.claude/
 .idea/
 .vscode
 .cursor
