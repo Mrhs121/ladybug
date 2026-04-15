@@ -627,7 +627,6 @@ TEST_F(ReviewFixesTest, ReclaimTailMergesWithDeserializedFSMEntries) {
             << (entries[i].first + entries[i].second) << ")";
     }
 }
-
 // Fix #4 – defer destructive column move until after nodeGroups->checkpoint()
 // ─────────────────────────────────────────────────────────────────────────────
 // NodeTable::checkpoint() used to move columns (vacuuming dropped column IDs)
