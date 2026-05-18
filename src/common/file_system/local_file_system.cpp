@@ -124,6 +124,7 @@ std::unique_ptr<FileInfo> LocalFileSystem::openFile(const std::string& path, Fil
             &overlapped);
         if (!rc) {
             auto error = GetLastError();
+            CloseHandle(handle);
             throw IOException("Could not set lock on file : " + fullPath +
                               " (Error: " + std::to_string(error) + ")\n" +
                               "See the docs: https://docs.ladybugdb.com/concurrency for more "
@@ -155,6 +156,7 @@ std::unique_ptr<FileInfo> LocalFileSystem::openFile(const std::string& path, Fil
                 get_fl.l_len = 0;
                 if (fcntl(fd, F_GETLK, &get_fl) != -1) {
                     if (get_fl.l_type != F_UNLCK) {
+                        close(fd);
                         throw IOException(
                             "Could not set lock on file : " + fullPath + " (Lock is held by PID " +
                             std::to_string(get_fl.l_pid) + ")\n" +
@@ -164,6 +166,7 @@ std::unique_ptr<FileInfo> LocalFileSystem::openFile(const std::string& path, Fil
                 }
             }
             errno = original_errno;
+            close(fd);
             throw IOException("Could not set lock on file : " + fullPath +
                               " (Error: " + posixErrMessage() + ")\n" +
                               "See the docs: https://docs.ladybugdb.com/concurrency for more "

@@ -26,6 +26,7 @@
 #include "storage/table/ice_disk_rel_table.h"
 #include "storage/table/node_table.h"
 #include "storage/table/rel_table.h"
+#include "storage/storage_utils.h"
 #include "storage/wal/wal_replayer.h"
 #include "transaction/transaction.h"
 #include <format>
@@ -47,6 +48,14 @@ StorageManager::StorageManager(const std::string& databasePath, bool readOnly, b
     shadowFile =
         std::make_unique<ShadowFile>(*memoryManager.getBufferManager(), vfs, this->databasePath);
     inMemory = main::DBConfig::isDBPathInMemory(databasePath);
+    if (!readOnly && !inMemory) {
+        vfs->openFile(StorageUtils::getCheckpointIntentLockFilePath(databasePath),
+            FileOpenFlags(FileFlags::READ_ONLY | FileFlags::WRITE |
+                          FileFlags::CREATE_IF_NOT_EXISTS));
+        vfs->openFile(StorageUtils::getCheckpointApplyLockFilePath(databasePath),
+            FileOpenFlags(FileFlags::READ_ONLY | FileFlags::WRITE |
+                          FileFlags::CREATE_IF_NOT_EXISTS));
+    }
     registerIndexType(PrimaryKeyIndex::getIndexType());
     registerIndexType(ArtPrimaryKeyIndex::getIndexType());
 }
