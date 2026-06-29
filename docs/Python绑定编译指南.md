@@ -2,7 +2,7 @@
 
 ## 背景
 
-Ladybug 的 Python 绑定（`real_ladybug`）通过 pybind11 将 C++ 核心库暴露给 Python。编译产物是一个平台相关的共享库，文件名包含 Python 版本信息，例如：
+Ladybug 的 Python 绑定（`ladybug`）通过 pybind11 将 C++ 核心库暴露给 Python。编译产物是一个平台相关的共享库，文件名包含 Python 版本信息，例如：
 
 ```
 _lbug.cpython-313-x86_64-linux-gnu.so
@@ -79,7 +79,7 @@ cmake --build build/release --parallel 8
 CMakeLists.txt 通过 `file(COPY ...)` 自动将 `src_py/` 拷贝到输出目录，通常不需要手动操作。如果发现 Python 源文件未同步，可手动执行：
 
 ```bash
-cp tools/python_api/src_py/*.py tools/python_api/build/real_ladybug/
+cp tools/python_api/src_py/*.py tools/python_api/build/ladybug/
 ```
 
 ---
@@ -87,13 +87,13 @@ cp tools/python_api/src_py/*.py tools/python_api/build/real_ladybug/
 ## 验证结果
 
 ```bash
-ls tools/python_api/build/real_ladybug/_lbug*.so
+ls tools/python_api/build/ladybug/_lbug*.so
 ```
 
 输出应包含目标 Python 版本号，例如：
 
 ```
-tools/python_api/build/real_ladybug/_lbug.cpython-313-x86_64-linux-gnu.so
+tools/python_api/build/ladybug/_lbug.cpython-313-x86_64-linux-gnu.so
 ```
 
 ---
@@ -104,10 +104,10 @@ tools/python_api/build/real_ladybug/_lbug.cpython-313-x86_64-linux-gnu.so
 
 ```toml
 [project]
-dependencies = ["real_ladybug"]
+dependencies = ["ladybug"]
 
 [tool.uv.sources]
-real_ladybug = { path = "/path/to/ladybug/tools/python_api", editable = true }
+ladybug = { path = "/path/to/ladybug/tools/python_api", editable = true }
 ```
 
 然后同步依赖：
