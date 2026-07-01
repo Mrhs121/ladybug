@@ -105,7 +105,7 @@ if __name__ == "__main__":
         shutil.copy2("README.md", os.path.join(tempdir, "README_PYTHON_BUILD.md"))
         subprocess.check_call([sys.executable, "setup.py", "egg_info"], cwd=tempdir)
         shutil.copy2(
-            os.path.join(tempdir, "ladybug.egg-info", "PKG-INFO"),
+            os.path.join(tempdir, "ladybugdb.egg-info", "PKG-INFO"),
             os.path.join(tempdir, "PKG-INFO"),
         )
         with tarfile.open(file_name, "w:gz") as sdist:
