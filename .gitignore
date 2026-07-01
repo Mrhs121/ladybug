@@ -86,6 +86,8 @@ scripts/generate-cpp-docs/c/lbug.h
 scripts/generate-cpp-docs/cpp/headers
 scripts/generate-cpp-docs/cpp/docs
 scripts/generate-cpp-docs/c/docs
+scripts/pip-package/cibw-source/
+scripts/pip-package/wheelhouse/
 
 # Generated datasets
 dataset/binary-demo
