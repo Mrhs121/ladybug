@@ -15,7 +15,8 @@
 	url = https://github.com/ladybugdb/ladybug-nodejs
 [submodule "tools/python_api"]
 	path = tools/python_api
-	url = https://github.com/ladybugdb/ladybug-python
+	url = https://gitlab-nj.ruishan.cc/zhangchuanyin/ladybug-python.git
+	branch = develop
 [submodule "tools/rust_api"]
 	path = tools/rust_api
 	url = https://github.com/ladybugdb/ladybug-rust
