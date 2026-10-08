@@ -79,7 +79,7 @@ struct LBUG_API SystemConfig {
         bool autoCheckpoint = true, uint64_t checkpointThreshold = 16777216 /* 16MB */,
         bool forceCheckpointOnClose = true, bool throwOnWalReplayFailure = false,
         bool enableChecksums = true, bool enableMultiWrites = false,
-        bool enableDefaultHashIndex = true
+        bool enableDefaultHashIndex = true, bool enableDecoupledStorage = false
 #if defined(__APPLE__)
         ,
         uint32_t threadQos = QOS_CLASS_DEFAULT
@@ -98,6 +98,7 @@ struct LBUG_API SystemConfig {
     bool enableChecksums;
     bool enableMultiWrites;
     bool enableDefaultHashIndex;
+    bool enableDecoupledStorage;
 #if defined(__APPLE__)
     uint32_t threadQos;
 #endif

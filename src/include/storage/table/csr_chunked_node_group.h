@@ -216,6 +216,8 @@ public:
 
     std::unique_ptr<ChunkedNodeGroup> flush(const transaction::Transaction* transaction,
         PageAllocator& pageAllocator) override;
+    std::unique_ptr<ChunkedNodeGroup> flush(const transaction::Transaction* transaction,
+        PageAllocator& headerAllocator, const std::vector<PageAllocator*>& columnAllocators);
 
 private:
     InMemChunkedCSRHeader csrHeader;

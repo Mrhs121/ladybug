@@ -6,6 +6,7 @@
 #include "common/serializer/deserializer.h"
 #include "common/serializer/serializer.h"
 #include "storage/buffer_manager/memory_manager.h"
+#include "storage/file_handle.h"
 #include "storage/shadow_file.h"
 #include "storage/storage_utils.h"
 #include "storage/table/column_chunk_data.h"
@@ -19,6 +20,14 @@ using namespace lbug::transaction;
 
 namespace lbug {
 namespace storage {
+
+static PageAllocator& getCheckpointPageAllocator(const Column& column,
+    PageAllocator& pageAllocator) {
+    auto* dataFH = column.getDataFH();
+    // Preserve caller-provided checkpoint allocators for their file, including wrappers.
+    // Columns stored in another file need that file's page manager.
+    return dataFH == pageAllocator.getDataFH() ? pageAllocator : *dataFH->getPageManager();
+}
 
 bool CSRNodeGroupScanState::tryScanCachedTuples(RelTableScanState& tableScanState) {
     if (numCachedRows == 0 ||
@@ -831,8 +840,10 @@ void CSRNodeGroup::checkpointColumn(const UniqLock& lock, column_id_t columnID,
             chunkCheckpointStates.push_back(std::move(regionCheckpointState));
         }
     }
+    auto& colAllocator =
+        getCheckpointPageAllocator(*csrState.columns[columnID], csrState.pageAllocator);
     persistentChunkGroup->getColumnChunk(columnID).checkpoint(*csrState.columns[columnID],
-        std::move(chunkCheckpointStates), csrState.pageAllocator);
+        std::move(chunkCheckpointStates), colAllocator);
 }
 
 struct SegmentCursor {
@@ -1114,15 +1125,17 @@ void CSRNodeGroup::checkpointCSRHeaderColumns(const CSRNodeGroupCheckpointState&
     DASSERT(numNodes == csrState.newHeader->length->getNumValues());
     csrOffsetChunkCheckpointStates.push_back(
         ChunkCheckpointState{std::move(csrState.newHeader->offset), 0, numNodes});
+    auto& offsetAllocator =
+        getCheckpointPageAllocator(*csrState.csrOffsetColumn, csrState.pageAllocator);
     persistentChunkGroup->cast<ChunkedCSRNodeGroup>().getCSRHeader().offset->checkpoint(
-        *csrState.csrOffsetColumn, std::move(csrOffsetChunkCheckpointStates),
-        csrState.pageAllocator);
+        *csrState.csrOffsetColumn, std::move(csrOffsetChunkCheckpointStates), offsetAllocator);
     std::vector<ChunkCheckpointState> csrLengthChunkCheckpointStates;
     csrLengthChunkCheckpointStates.push_back(
         ChunkCheckpointState{std::move(csrState.newHeader->length), 0, numNodes});
+    auto& lengthAllocator =
+        getCheckpointPageAllocator(*csrState.csrLengthColumn, csrState.pageAllocator);
     persistentChunkGroup->cast<ChunkedCSRNodeGroup>().getCSRHeader().length->checkpoint(
-        *csrState.csrLengthColumn, std::move(csrLengthChunkCheckpointStates),
-        csrState.pageAllocator);
+        *csrState.csrLengthColumn, std::move(csrLengthChunkCheckpointStates), lengthAllocator);
 }
 
 void CSRNodeGroup::collectRegionChangesAndUpdateHeaderLength(const UniqLock& lock,
@@ -1330,12 +1343,14 @@ void CSRNodeGroup::checkpointInMemOnly(const UniqLock& lock, NodeGroupCheckpoint
     }
 
     // FIXME(bmwinger): this needs segmentation. Maybe this should use (or share code with)
-    // checkpointOutOfPlace Flush data chunks to disk.
-    for (const auto& chunk : dataChunksToFlush) {
-        chunk->flush(csrState.pageAllocator);
+    for (auto i = 0u; i < numColumnsToCheckpoint; i++) {
+        dataChunksToFlush[i]->flush(
+            getCheckpointPageAllocator(*csrState.columns[i], csrState.pageAllocator));
     }
-    csrState.newHeader->offset->flush(csrState.pageAllocator);
-    csrState.newHeader->length->flush(csrState.pageAllocator);
+    csrState.newHeader->offset->flush(
+        getCheckpointPageAllocator(*csrState.csrOffsetColumn, csrState.pageAllocator));
+    csrState.newHeader->length->flush(
+        getCheckpointPageAllocator(*csrState.csrLengthColumn, csrState.pageAllocator));
     persistentChunkGroup = std::make_unique<ChunkedCSRNodeGroup>(
         ChunkedCSRHeader(false /*enableCompression*/, std::move(*csrState.newHeader)),
         std::move(dataChunksToFlush), 0);

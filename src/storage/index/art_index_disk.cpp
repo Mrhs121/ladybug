@@ -267,7 +267,7 @@ std::unique_ptr<Index> ArtPrimaryKeyIndex::load(main::ClientContext*,
     auto storageInfo =
         ArtPrimaryKeyIndexStorageInfo::deserialize(std::move(storageInfoBufferReader));
     auto index = std::make_unique<ArtPrimaryKeyIndex>(std::move(indexInfo), std::move(storageInfo));
-    index->diskFileHandle = storageManager->getDataFH();
+    index->diskFileHandle = storageManager->getNodeIndexFH(indexInfo.tableID);
     return index;
 }
 

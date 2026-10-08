@@ -60,14 +60,19 @@ static void erasePartitionedParents(std::vector<NodeTableCatalogEntry*>& entries
 
 StorageManager::StorageManager(const std::string& databasePath, bool readOnly, bool enableChecksums,
     MemoryManager& memoryManager, bool enableCompression, bool enableDefaultHashIndex,
-    VirtualFileSystem* vfs)
+    VirtualFileSystem* vfs, bool enableDecoupledStorage)
     : databasePath{databasePath}, readOnly{readOnly}, dataFH{nullptr}, memoryManager{memoryManager},
       enableCompression{enableCompression}, enableDefaultHashIndex{enableDefaultHashIndex},
-      vfs_{vfs} {
-    wal = std::make_unique<WAL>(databasePath, readOnly, enableChecksums, vfs, this);
-    shadowFile =
-        std::make_unique<ShadowFile>(*memoryManager.getBufferManager(), vfs, this->databasePath);
+      vfs_{vfs}, enableDecoupledStorage{enableDecoupledStorage} {
     inMemory = main::DBConfig::isDBPathInMemory(databasePath);
+    const auto metaPath = getDataFilePath();
+    wal = std::make_unique<WAL>(metaPath, readOnly, enableChecksums, vfs, this);
+    shadowFile =
+        std::make_unique<ShadowFile>(*memoryManager.getBufferManager(), vfs, metaPath, this);
+    if (enableDecoupledStorage && !inMemory) {
+        fileRegistry = std::make_unique<StorageFileRegistry>(databasePath,
+            memoryManager.getBufferManager(), vfs, readOnly);
+    }
     // Checkpoint intent/apply lock files (*.checkpoint.intent.lock and
     // *.checkpoint.apply.lock) are NOT created here.  All access, including subgraph
     // access, goes through the main database path returned by
@@ -84,15 +89,35 @@ void StorageManager::initDataFileHandle(VirtualFileSystem* vfs, main::ClientCont
         return;
     }
     if (inMemory) {
-        dataFH = memoryManager.getBufferManager()->getFileHandle(databasePath,
-            FileHandle::O_PERSISTENT_FILE_IN_MEM, vfs, context);
+        if (dataFH == nullptr) {
+            dataFH = memoryManager.getBufferManager()->getFileHandle(databasePath,
+                FileHandle::O_PERSISTENT_FILE_IN_MEM, vfs, context);
+        } else {
+            dataFH->setFileInfo(std::make_unique<FileInfo>(databasePath, nullptr));
+        }
     } else {
+        if (enableDecoupledStorage && fileRegistry) {
+            fileRegistry->initDirectories(context);
+        }
+        const auto targetPath = getDataFilePath();
         auto flag = readOnly ? FileHandle::O_PERSISTENT_FILE_READ_ONLY :
                                FileHandle::O_PERSISTENT_FILE_CREATE_NOT_EXISTS;
         if (!readOnly) {
             flag |= FileHandle::O_LOCKED_PERSISTENT_FILE;
         }
-        dataFH = memoryManager.getBufferManager()->getFileHandle(databasePath, flag, vfs, context);
+        if (dataFH == nullptr) {
+            dataFH =
+                memoryManager.getBufferManager()->getFileHandle(targetPath, flag, vfs, context);
+        } else {
+            // A partition rename must preserve the handle used by columns, page allocators and
+            // pending shadow records, including its page count and free-space state.
+            const auto openFlags =
+                FileOpenFlags(readOnly ? FileFlags::READ_ONLY :
+                                         FileFlags::WRITE | FileFlags::READ_ONLY |
+                                             FileFlags::CREATE_IF_NOT_EXISTS,
+                    readOnly ? FileLockType::NO_LOCK : FileLockType::WRITE_LOCK);
+            dataFH->setFileInfo(vfs->openFile(targetPath, openFlags, context));
+        }
         if (dataFH->getNumPages() == 0) {
             if (!readOnly) {
                 // Reserve the first page for the database header.
@@ -116,6 +141,47 @@ void StorageManager::closeFileHandle() {
     if (dataFH != nullptr) {
         dataFH->resetFileInfo();
     }
+    if (fileRegistry != nullptr) {
+        fileRegistry->closeAll();
+    }
+}
+
+std::string StorageManager::getTableName(table_id_t tableID) const {
+    std::shared_lock lck{mtx};
+    auto it = tableNameCache.find(tableID);
+    return it != tableNameCache.end() ? it->second : "";
+}
+
+FileHandle* StorageManager::getNodePropsFH(table_id_t tableID, const std::string& tableName) const {
+    if (!enableDecoupledStorage || inMemory) {
+        return dataFH;
+    }
+    const auto& name = tableName.empty() ? getTableName(tableID) : tableName;
+    return fileRegistry->getOrOpenNodePropsFile(tableID, name, nullptr);
+}
+
+FileHandle* StorageManager::getNodeIndexFH(table_id_t tableID, const std::string& tableName) const {
+    if (!enableDecoupledStorage || inMemory) {
+        return dataFH;
+    }
+    const auto& name = tableName.empty() ? getTableName(tableID) : tableName;
+    return fileRegistry->getOrOpenNodeIndexFile(tableID, name, nullptr);
+}
+
+FileHandle* StorageManager::getRelTopoFH(table_id_t tableID, const std::string& tableName) const {
+    if (!enableDecoupledStorage || inMemory) {
+        return dataFH;
+    }
+    const auto& name = tableName.empty() ? getTableName(tableID) : tableName;
+    return fileRegistry->getOrOpenTopoFile(tableID, name, nullptr);
+}
+
+FileHandle* StorageManager::getRelPropsFH(table_id_t tableID, const std::string& tableName) const {
+    if (!enableDecoupledStorage || inMemory) {
+        return dataFH;
+    }
+    const auto& name = tableName.empty() ? getTableName(tableID) : tableName;
+    return fileRegistry->getOrOpenRelPropsFile(tableID, name, nullptr);
 }
 
 Table* StorageManager::getTable(table_id_t tableID) {
@@ -243,6 +309,8 @@ void StorageManager::createNodeTable(NodeTableCatalogEntry* entry, main::ClientC
 // entry).
 void StorageManager::addRelTable(RelGroupCatalogEntry* entry, const RelTableCatalogInfo& info,
     main::ClientContext* context) {
+    tableNameCache[info.oid] = entry->getName();
+    tableNameCache[entry->getTableID()] = entry->getName();
     if (entry->getScanFunction().has_value()) {
         // Create foreign-backed rel table
         tables[info.oid] = std::make_unique<ForeignRelTable>(entry, info.nodePair.srcTableID,
@@ -516,6 +584,11 @@ std::unordered_map<table_id_t, uint64_t> StorageManager::captureChangeEpochs() c
 
 void StorageManager::finalizeCheckpoint(main::ClientContext& context) {
     dataFH->getPageManager()->finalizeCheckpoint();
+    if (fileRegistry) {
+        for (auto* fh : fileRegistry->getAllFiles()) {
+            fh->getPageManager()->finalizeCheckpoint();
+        }
+    }
     // Publish staged per-table state (e.g. PK index read headers) now that the checkpoint
     // committed. Must run post-commit: publishing earlier would expose half-checkpointed
     // state to a rollback that cannot restore it.
@@ -547,6 +620,11 @@ void StorageManager::rollbackCheckpoint(const Catalog& catalog, main::ClientCont
         tables.at(tableEntry->getTableID())->rollbackCheckpoint();
     }
     dataFH->getPageManager()->rollbackCheckpoint();
+    if (fileRegistry) {
+        for (auto* fh : fileRegistry->getAllFiles()) {
+            fh->getPageManager()->rollbackCheckpoint();
+        }
+    }
 }
 
 std::optional<std::reference_wrapper<const IndexType>> StorageManager::getIndexType(
@@ -704,8 +782,10 @@ void StorageManager::deserialize(main::ClientContext* context, const Catalog* ca
         deSer.deserializeValue<uint64_t>(numInnerRelTables);
         auto relGroupEntry = catalog->getTableCatalogEntry(&DUMMY_TRANSACTION, relGroupID)
                                  ->ptrCast<RelGroupCatalogEntry>();
+        tableNameCache[relGroupID] = relGroupEntry->getName();
         for (auto k = 0u; k < numInnerRelTables; k++) {
             RelTableCatalogInfo info = RelTableCatalogInfo::deserialize(deSer);
+            tableNameCache[info.oid] = relGroupEntry->getName();
             DASSERT(!tables.contains(info.oid));
             if (relGroupEntry->getStorageFormat() == StorageFormat::ICEBUG_DISK) {
                 // Create icebug-disk-backed rel table

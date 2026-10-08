@@ -64,6 +64,7 @@ struct LBUG_API RelBatchInsertInfo final : BatchInsertInfo {
 struct LBUG_API RelBatchInsertLocalState final : BatchInsertLocalState {
     common::partition_idx_t nodeGroupIdx = common::INVALID_NODE_GROUP_IDX;
     std::unique_ptr<common::DataChunk> dummyAllNullDataChunk;
+    std::vector<storage::PageAllocator*> columnAllocators;
 };
 
 struct LBUG_API RelBatchInsertExecutionState {

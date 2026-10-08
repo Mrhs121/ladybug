@@ -56,10 +56,16 @@ private:
 
 class RelTableData {
 public:
-    RelTableData(FileHandle* dataFH, MemoryManager* mm, ShadowFile* shadowFile,
+    RelTableData(FileHandle* topoFH, FileHandle* propsFH, MemoryManager* mm, ShadowFile* shadowFile,
         const catalog::RelGroupCatalogEntry& relGroupEntry,
         const catalog::RelTableCatalogInfo& relTableInfo, Table& table,
         common::RelDataDirection direction, common::table_id_t nbrTableID, bool enableCompression);
+    RelTableData(FileHandle* dataFH, MemoryManager* mm, ShadowFile* shadowFile,
+        const catalog::RelGroupCatalogEntry& relGroupEntry,
+        const catalog::RelTableCatalogInfo& relTableInfo, Table& table,
+        common::RelDataDirection direction, common::table_id_t nbrTableID, bool enableCompression)
+        : RelTableData(dataFH, dataFH, mm, shadowFile, relGroupEntry, relTableInfo, table,
+              direction, nbrTableID, enableCompression) {}
 
     bool update(transaction::Transaction* transaction, common::ValueVector& boundNodeIDVector,
         const common::ValueVector& relIDVector, common::column_id_t columnID,
@@ -117,9 +123,9 @@ public:
     common::RelDataDirection getDirection() const { return direction; }
 
 private:
-    void initCSRHeaderColumns(FileHandle* dataFH);
+    void initCSRHeaderColumns(FileHandle* topoFH);
     void initPropertyColumns(const catalog::RelGroupCatalogEntry& relGroupEntry,
-        common::table_id_t nbrTableID, FileHandle* dataFH);
+        common::table_id_t nbrTableID, FileHandle* topoFH, FileHandle* propsFH);
 
     std::pair<CSRNodeGroupScanSource, common::row_idx_t> findMatchingRow(
         transaction::Transaction* transaction, common::ValueVector& boundNodeIDVector,

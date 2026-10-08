@@ -217,6 +217,11 @@ public:
         return fileHandles.back().get();
     }
 
+    FileHandle* getFileHandle(common::file_idx_t fileIdx) const {
+        DASSERT(fileIdx < fileHandles.size());
+        return fileHandles[fileIdx].get();
+    }
+
     uint64_t getMemoryLimit() const { return bufferPoolSize; }
     uint64_t getUsedMemory() const { return usedMemory; }
 

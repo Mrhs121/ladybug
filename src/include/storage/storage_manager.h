@@ -6,6 +6,7 @@
 #include "shadow_file.h"
 #include "storage/index/index.h"
 #include "storage/stats/planner_stats.h"
+#include "storage/storage_file_registry.h"
 #include "storage/wal/wal.h"
 
 namespace lbug {
@@ -37,7 +38,7 @@ class LBUG_API StorageManager {
 public:
     StorageManager(const std::string& databasePath, bool readOnly, bool enableChecksums,
         MemoryManager& memoryManager, bool enableCompression, bool enableDefaultHashIndex,
-        common::VirtualFileSystem* vfs);
+        common::VirtualFileSystem* vfs, bool enableDecoupledStorage = false);
     ~StorageManager();
 
     Table* getTable(common::table_id_t tableID);
@@ -66,6 +67,11 @@ public:
     ShadowFile& getShadowFile() const;
     FileHandle* getDataFH() const { return dataFH; }
     std::string getDatabasePath() const { return databasePath; }
+    std::string getDataFilePath() const {
+        return enableDecoupledStorage && !inMemory ?
+                   (std::filesystem::path(databasePath) / "metadata.db").string() :
+                   databasePath;
+    }
     // Phase-B per-partition files: retarget this manager (and its shadow file) after the
     // owning partition child is renamed. Caller must have closed the file handle.
     void setDatabasePath(const std::string& newPath);
@@ -74,6 +80,14 @@ public:
     bool isInMemory() const { return inMemory; }
     bool defaultHashIndexEnabled() const { return enableDefaultHashIndex; }
     void setDefaultHashIndexEnabled(bool enabled) { enableDefaultHashIndex = enabled; }
+    bool isDecoupledStorage() const { return enableDecoupledStorage; }
+    StorageFileRegistry* getFileRegistry() const { return fileRegistry.get(); }
+    std::string getTableName(common::table_id_t tableID) const;
+
+    FileHandle* getNodePropsFH(common::table_id_t tableID, const std::string& tableName = "") const;
+    FileHandle* getNodeIndexFH(common::table_id_t tableID, const std::string& tableName = "") const;
+    FileHandle* getRelTopoFH(common::table_id_t tableID, const std::string& tableName = "") const;
+    FileHandle* getRelPropsFH(common::table_id_t tableID, const std::string& tableName = "") const;
 
     std::optional<PlannerTableStats> getCachedPlannerTableStats(common::table_id_t tableID) const;
     void setCachedPlannerTableStats(PlannerTableStats stats);
@@ -139,6 +153,8 @@ private:
     std::unordered_map<common::table_id_t, PlannerTableStats> plannerStatsCache;
     std::unordered_map<common::table_id_t, std::string> tableNameCache;
     common::VirtualFileSystem* vfs_; // non-owning, owned by Database
+    bool enableDecoupledStorage = false;
+    std::unique_ptr<StorageFileRegistry> fileRegistry;
 };
 
 } // namespace storage

@@ -13,8 +13,8 @@ class PageManager;
 /**
  * Manages any optimistically allocated pages (e.g. during COPY) so that they can be freed if a
  * rollback occurs.
- * Instances are shared across worker threads (LocalStorage caches one allocator per
- * StorageManager), so all accesses to the tracked page ranges are synchronized internally.
+ * Instances are shared across worker threads (LocalStorage caches one allocator per physical
+ * file), so all accesses to the tracked page ranges are synchronized internally.
  */
 class OptimisticAllocator : public PageAllocator {
 public:

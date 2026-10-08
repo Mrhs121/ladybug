@@ -91,19 +91,21 @@ LocalTable* LocalStorage::getLocalTable(common::table_id_t tableID) const {
 
 PageAllocator* LocalStorage::addOptimisticAllocator(StorageManager* sm) {
     auto* effectiveSM = sm != nullptr ? sm : StorageManager::Get(clientContext);
-    auto* dataFH = effectiveSM->getDataFH();
-    if (dataFH->isInMemoryMode()) {
-        return dataFH->getPageManager();
+    return addOptimisticAllocator(*effectiveSM->getDataFH());
+}
+
+PageAllocator* LocalStorage::addOptimisticAllocator(FileHandle& dataFH) {
+    if (dataFH.isInMemoryMode()) {
+        return dataFH.getPageManager();
     }
     UniqLock lck{mtx};
-    if (const auto it = allocatorsByStorageManager.find(effectiveSM);
-        it != allocatorsByStorageManager.end()) {
+    if (const auto it = allocatorsByFile.find(&dataFH); it != allocatorsByFile.end()) {
         return it->second;
     }
     optimisticAllocators.emplace_back(
-        std::make_unique<OptimisticAllocator>(*dataFH->getPageManager()));
+        std::make_unique<OptimisticAllocator>(*dataFH.getPageManager()));
     auto* allocator = optimisticAllocators.back().get();
-    allocatorsByStorageManager[effectiveSM] = allocator;
+    allocatorsByFile[&dataFH] = allocator;
     return allocator;
 }
 

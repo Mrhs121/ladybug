@@ -271,8 +271,9 @@ NodeTable::NodeTable(const StorageManager* storageManager,
       versionRecordHandler(this, nodeTableEntry->getOwningCatalogName().empty() ?
                                      nullptr :
                                      nodeTableEntry->getOwningCatalog()) {
-    auto* dataFH = storageManager->getDataFH();
-    auto& pageAllocator = *dataFH->getPageManager();
+    auto* propsFH = storageManager->getNodePropsFH(tableID, nodeTableEntry->getName());
+    auto* indexFH = storageManager->getNodeIndexFH(tableID, nodeTableEntry->getName());
+    auto& pageAllocator = *indexFH->getPageManager();
     const auto maxColumnID = nodeTableEntry->getMaxColumnID();
     columns.resize(maxColumnID + 1);
     for (auto& property : nodeTableEntry->getProperties()) {
@@ -280,7 +281,7 @@ NodeTable::NodeTable(const StorageManager* storageManager,
         const auto columnName =
             StorageUtils::getColumnName(property.getName(), StorageUtils::ColumnType::DEFAULT, "");
         columns[columnID] = ColumnFactory::createColumn(columnName, property.getType().copy(),
-            dataFH, mm, shadowFile, enableCompression);
+            propsFH, mm, shadowFile, enableCompression);
     }
     auto& pkDefinition = nodeTableEntry->getPrimaryKeyDefinition();
     DASSERT(pkColumnID != INVALID_COLUMN_ID);
@@ -295,8 +296,7 @@ NodeTable::NodeTable(const StorageManager* storageManager,
     }
     nodeGroups = std::make_unique<NodeGroupCollection>(*mm,
         LocalNodeTable::getNodeTableColumnTypes(*nodeTableEntry), enableCompression,
-        storageManager->getDataFH() ? ResidencyState::ON_DISK : ResidencyState::IN_MEMORY,
-        &versionRecordHandler);
+        propsFH ? ResidencyState::ON_DISK : ResidencyState::IN_MEMORY, &versionRecordHandler);
 }
 
 row_idx_t NodeTable::getNumTotalRows(const Transaction* transaction) {
@@ -646,9 +646,12 @@ bool NodeTable::delete_(Transaction* transaction, TableDeleteState& deleteState)
 
 void NodeTable::addColumn(Transaction* transaction, TableAddColumnState& addColumnState,
     PageAllocator& pageAllocator) {
+    auto* propsFH = storageManager->getNodePropsFH(tableID, tableName);
+    auto& propsAllocator =
+        propsFH == pageAllocator.getDataFH() ? pageAllocator : *propsFH->getPageManager();
     auto& definition = addColumnState.propertyDefinition;
     columns.push_back(ColumnFactory::createColumn(definition.getName(), definition.getType().copy(),
-        pageAllocator.getDataFH(), memoryManager, shadowFile, enableCompression));
+        propsFH, memoryManager, shadowFile, enableCompression));
     LocalTable* localTable = nullptr;
     if (transaction->getLocalStorage()) {
         localTable = transaction->getLocalStorage()->getLocalTable(*this);
@@ -656,7 +659,7 @@ void NodeTable::addColumn(Transaction* transaction, TableAddColumnState& addColu
     if (localTable) {
         localTable->addColumn(addColumnState);
     }
-    nodeGroups->addColumn(addColumnState, &pageAllocator);
+    nodeGroups->addColumn(addColumnState, &propsAllocator);
     setHasChanges();
 }
 
@@ -788,14 +791,21 @@ bool NodeTable::checkpoint(main::ClientContext* context, TableCatalogEntry* tabl
         }
     }
 
-    NodeGroupCheckpointState state{columnIDs, std::move(checkpointColumnPtrs), pageAllocator,
+    auto* propsFH = storageManager->getNodePropsFH(tableID, tableEntry->getName());
+    auto* indexFH = storageManager->getNodeIndexFH(tableID, tableEntry->getName());
+    auto& propsPageAllocator =
+        propsFH == pageAllocator.getDataFH() ? pageAllocator : *propsFH->getPageManager();
+    auto& indexPageAllocator =
+        indexFH == pageAllocator.getDataFH() ? pageAllocator : *indexFH->getPageManager();
+
+    NodeGroupCheckpointState state{columnIDs, std::move(checkpointColumnPtrs), propsPageAllocator,
         memoryManager, snapshotTxn};
     nodeGroups->checkpoint(*memoryManager, state);
     for (auto& index : indexes) {
         // TODO: The hash index checkpoint currently operates on live index state rather than
         // a snapshotTxn view. This is a pre-existing limitation; threading snapshotTxn through
         // the full hash-index infrastructure is deferred to a follow-up.
-        index.checkpoint(context, pageAllocator, *shadowFile);
+        index.checkpoint(context, indexPageAllocator, *shadowFile);
     }
     // Checkpoint succeeded. Now vacuum dropped columns and update catalog IDs.
     // Guard under schemaMtx so concurrent readers see a consistent view.

@@ -83,7 +83,7 @@ static void removePartitionChildShadowFiles(main::ClientContext& clientContext) 
     auto vfs = VirtualFileSystem::GetUnsafe(clientContext);
     std::string removedShadowPath;
     for (auto* sm : dbManager->getPartitionStorageRegistry()->getAllManagers()) {
-        const auto path = StorageUtils::getShadowFilePath(sm->getDatabasePath());
+        const auto path = StorageUtils::getShadowFilePath(sm->getDataFilePath());
         if (vfs->fileOrPathExists(path, &clientContext)) {
             if (clientContext.getDBConfig()->readOnly) {
                 throw RuntimeException(std::format("{} Pending recovery file: {}.",
@@ -128,7 +128,7 @@ static void removeGraphCheckpointShadows(main::ClientContext& clientContext) {
             continue;
         }
         const auto shadowFilePath =
-            StorageUtils::getShadowFilePath(storageManager->getDatabasePath());
+            StorageUtils::getShadowFilePath(storageManager->getDataFilePath());
         if (vfs->fileOrPathExists(shadowFilePath, &clientContext)) {
             vfs->removeFileIfExists(shadowFilePath, &clientContext);
             removedShadowPath = shadowFilePath;
@@ -152,9 +152,10 @@ static uuid readPersistedDatabaseID(StorageManager& storageManager) {
 }
 
 WALReplayer::WALReplayer(main::ClientContext& clientContext) : clientContext{clientContext} {
-    walPath = StorageUtils::getWALFilePath(clientContext.getDatabasePath());
-    checkpointWalPath = StorageUtils::getCheckpointWALFilePath(clientContext.getDatabasePath());
-    shadowFilePath = StorageUtils::getShadowFilePath(clientContext.getDatabasePath());
+    const auto dataPath = clientContext.getDatabase()->getStorageManager()->getDataFilePath();
+    walPath = StorageUtils::getWALFilePath(dataPath);
+    checkpointWalPath = StorageUtils::getCheckpointWALFilePath(dataPath);
+    shadowFilePath = StorageUtils::getShadowFilePath(dataPath);
 }
 
 uuid WALReplayer::readShadowDatabaseID(const std::string& path) const {
@@ -313,6 +314,18 @@ static void throwIfReadOnlyCheckpointState(main::ClientContext& clientContext, b
 void WALReplayer::replay(bool throwOnWalReplayFailure, bool enableChecksums) const {
     auto vfs = VirtualFileSystem::GetUnsafe(clientContext);
     auto* mainStorageManager = clientContext.getDatabase()->getStorageManager();
+    if (mainStorageManager->isDecoupledStorage() &&
+        !vfs->fileOrPathExists(mainStorageManager->getDataFilePath(), &clientContext) &&
+        (vfs->fileOrPathExists(checkpointWalPath, &clientContext) ||
+            vfs->fileOrPathExists(walPath, &clientContext) ||
+            vfs->fileOrPathExists(shadowFilePath, &clientContext))) {
+        // A missing metadata file belongs to the recovery bundle too. Do not replace it with
+        // a fresh database header before the bundle can be validated.
+        throw RuntimeException(std::format("Cannot recover database {}: metadata file is missing. "
+                                           "Keep the WAL and shadow files in place and restore "
+                                           "the metadata file they were written for.",
+            clientContext.getDatabasePath()));
+    }
     if (!mainStorageManager->isReadOnly() &&
         vfs->fileOrPathExists(clientContext.getDatabasePath(), &clientContext)) {
         mainStorageManager->initDataFileHandle(vfs, &clientContext);
@@ -345,7 +358,7 @@ void WALReplayer::replay(bool throwOnWalReplayFailure, bool enableChecksums) con
 WALReplayer::GraphRecoveryState WALReplayer::prepareGraphCheckpoint(StorageManager& storageManager,
     bool checkpointBundle, std::optional<uuid> checkpointDatabaseID) const {
     auto vfs = VirtualFileSystem::GetUnsafe(clientContext);
-    const auto& databasePath = storageManager.getDatabasePath();
+    const auto databasePath = storageManager.getDataFilePath();
     const auto activeWALPath = StorageUtils::getWALFilePath(databasePath);
     const auto frozenWALPath = StorageUtils::getCheckpointWALFilePath(databasePath);
     const auto graphShadowPath = StorageUtils::getShadowFilePath(databasePath);
@@ -590,7 +603,7 @@ void WALReplayer::removeGraphCheckpointShadow(StorageManager& storageManager) co
         return;
     }
     removeFileAndSyncParentDirectory(
-        StorageUtils::getShadowFilePath(storageManager.getDatabasePath()));
+        StorageUtils::getShadowFilePath(storageManager.getDataFilePath()));
 }
 
 void WALReplayer::replayFrozenWAL(Checkpointer& checkpointer, bool throwOnWalReplayFailure,

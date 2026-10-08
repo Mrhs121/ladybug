@@ -151,6 +151,22 @@ Q_p1
 -STATEMENT MATCH (n:Q) RETURN n.id, n.k;
 ---- 1
 1|a
+# The renamed partitions keep their data and allocator state across checkpoint and reopen.
+-STATEMENT CHECKPOINT;
+---- ok
+-RELOADDB
+-STATEMENT MATCH (n:Q) RETURN n.id, n.k;
+---- 1
+1|a
+-STATEMENT CREATE (:Q {id: 2, k: 'b'});
+---- ok
+-STATEMENT CHECKPOINT;
+---- ok
+-RELOADDB
+-STATEMENT MATCH (n:Q) RETURN n.id, n.k ORDER BY n.id;
+---- 2
+1|a
+2|b
 
 -CASE PartitionedUpdateKey
 -STATEMENT CREATE NODE TABLE T (id INT64 PRIMARY KEY, k STRING) PARTITION BY HASH (k) PARTITIONS 2;

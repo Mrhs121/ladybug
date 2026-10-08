@@ -205,9 +205,11 @@ RelTable::RelTable(RelGroupCatalogEntry* relGroupEntry, table_id_t fromTableID,
     // Foreign-backed rel tables (e.g. pg_client rel_ tables) are scan-driven and don't
     // own on-disk CSR columns, so skip RelTableData construction for them.
     if (!relGroupEntry->getScanFunction().has_value()) {
+        auto* topoFH = storageManager->getRelTopoFH(relGroupID, relGroupEntry->getName());
+        auto* propsFH = storageManager->getRelPropsFH(relGroupID, relGroupEntry->getName());
         for (auto direction : relGroupEntry->getRelDataDirections()) {
             auto nbrTableID = RelDirectionUtils::getNbrTableID(direction, fromTableID, toTableID);
-            directedRelData.emplace_back(std::make_unique<RelTableData>(storageManager->getDataFH(),
+            directedRelData.emplace_back(std::make_unique<RelTableData>(topoFH, propsFH,
                 memoryManager, shadowFile, *relGroupEntry, *relEntryInfo, *this, direction,
                 nbrTableID, enableCompression));
         }
@@ -592,6 +594,9 @@ void RelTable::detachDeleteForCSRRels(Transaction* transaction, RelTableData* ta
 
 void RelTable::addColumn(Transaction* transaction, TableAddColumnState& addColumnState,
     PageAllocator& pageAllocator) {
+    auto* propsFH = storageManager->getRelPropsFH(relGroupID, tableName);
+    auto& propsAllocator =
+        propsFH == pageAllocator.getDataFH() ? pageAllocator : *propsFH->getPageManager();
     LocalTable* localTable = nullptr;
     if (transaction->getLocalStorage()) {
         localTable = transaction->getLocalStorage()->getLocalTable(*this);
@@ -600,7 +605,7 @@ void RelTable::addColumn(Transaction* transaction, TableAddColumnState& addColum
         localTable->addColumn(addColumnState);
     }
     for (auto& directedRelData : directedRelData) {
-        directedRelData->addColumn(addColumnState, pageAllocator);
+        directedRelData->addColumn(addColumnState, propsAllocator);
     }
     setHasChanges();
 }
@@ -735,7 +740,10 @@ bool RelTable::checkpoint(main::ClientContext*, TableCatalogEntry* tableEntry,
         columnIDs.push_back(tableEntry->getColumnID(property.getName()));
     }
     for (auto& directedRelData : directedRelData) {
-        directedRelData->checkpoint(columnIDs, pageAllocator, snapshotTxn);
+        auto* topoFH = directedRelData->getCSROffsetColumn()->getDataFH();
+        auto& topoPageAllocator =
+            topoFH == pageAllocator.getDataFH() ? pageAllocator : *topoFH->getPageManager();
+        directedRelData->checkpoint(columnIDs, topoPageAllocator, snapshotTxn);
     }
     lastCheckpointedEpoch = effectiveEpoch;
     return true;

@@ -430,7 +430,7 @@ void Checkpointer::postCheckpointCleanup(bool canResetPageManagerToCurrent) try 
     }
     common::VirtualFileSystem::GetUnsafe(clientContext)
         ->syncParentDirectory(
-            StorageUtils::getShadowFilePath(mainStorageManager->getDatabasePath()));
+            StorageUtils::getShadowFilePath(mainStorageManager->getDataFilePath()));
     bufferManager->removeEvictedCandidates();
     releaseCheckpointLocks();
 } catch (const std::exception& e) {
@@ -531,7 +531,7 @@ void Checkpointer::logCheckpointAndApplyShadowPages(bool walRotated_) {
     shadowFile.flushAll(mainStorageManager->getOrInitDatabaseID(clientContext));
     auto* vfs = common::VirtualFileSystem::GetUnsafe(clientContext);
     vfs->syncParentDirectory(
-        StorageUtils::getShadowFilePath(mainStorageManager->getDatabasePath()));
+        StorageUtils::getShadowFilePath(mainStorageManager->getDataFilePath()));
     auto& wal = mainStorageManager->getWAL();
     if (walRotated_) {
         wal.logAndFlushCheckpointToFrozen(&clientContext);

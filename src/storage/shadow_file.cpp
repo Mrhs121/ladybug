@@ -1,6 +1,8 @@
 #include "storage/shadow_file.h"
 
 #include <algorithm>
+#include <filesystem>
+#include <unordered_set>
 
 #include "common/exception/io.h"
 #include "common/exception/runtime.h"
@@ -10,6 +12,7 @@
 #include "common/serializer/deserializer.h"
 #include "common/serializer/serializer.h"
 #include "main/client_context.h"
+#include "main/database.h"
 #include "main/db_config.h"
 #include "storage/buffer_manager/buffer_manager.h"
 #include "storage/buffer_manager/memory_manager.h"
@@ -26,6 +29,44 @@ namespace lbug {
 namespace storage {
 
 namespace {
+constexpr uint64_t FILE_MANIFEST_VERSION = 1;
+
+struct ShadowFileTarget {
+    file_idx_t fileIdx;
+    page_idx_t numPages;
+    std::string relativePath;
+    FileInfo* fileInfo = nullptr;
+    FileHandle* fileHandle = nullptr;
+    std::unique_ptr<FileInfo> ownedFileInfo;
+
+    void serialize(Serializer& serializer) const {
+        serializer.write(fileIdx);
+        serializer.write(numPages);
+        serializer.write(relativePath);
+    }
+};
+
+bool isValidTargetPath(const std::string& relativePath, const std::string& metadataName) {
+    const std::filesystem::path path{relativePath};
+    if (relativePath.empty() || relativePath.find('\0') != std::string::npos ||
+        path.is_absolute() || path != path.lexically_normal()) {
+        return false;
+    }
+    std::vector<std::string> parts;
+    for (const auto& part : path) {
+        if (part == ".." || part == "." || part.empty()) {
+            return false;
+        }
+        parts.push_back(part.string());
+    }
+    return relativePath == metadataName ||
+           (parts.size() == 2 && parts[0] == "topology" && parts[1].starts_with("rel_") &&
+               path.extension() == ".topo") ||
+           (parts.size() == 3 &&
+               ((parts[0] == "nodes" && (parts[2] == "props.data" || parts[2] == "pk.idx")) ||
+                   (parts[0] == "rels" && parts[2] == "props.data")));
+}
+
 // Bounds every read to the buffer so a corrupted length field in a database header page (e.g. a
 // debugging-string length) cannot read past the page allocation.
 class BoundedPageReader final : public Reader {
@@ -66,8 +107,12 @@ ShadowPageRecord ShadowPageRecord::deserialize(Deserializer& deserializer) {
     return ShadowPageRecord{originalFileIdx, originalPageIdx};
 }
 
-ShadowFile::ShadowFile(BufferManager& bm, VirtualFileSystem* vfs, const std::string& databasePath)
+ShadowFile::ShadowFile(BufferManager& bm, VirtualFileSystem* vfs, const std::string& databasePath,
+    StorageManager* owningStorageManager)
     : bm{bm}, shadowFilePath{StorageUtils::getShadowFilePath(databasePath)}, vfs{vfs},
+      owningStorageManager{owningStorageManager},
+      multiFile{owningStorageManager && owningStorageManager->isDecoupledStorage() &&
+                !owningStorageManager->isInMemory()},
       shadowingFH{nullptr} {
     DASSERT(vfs);
 }
@@ -170,19 +215,30 @@ bool ShadowFile::readShadowVersionIfExists(file_idx_t originalFile, page_idx_t o
 void ShadowFile::applyShadowPages(StorageManager& storageManager, ClientContext& context) const {
     const auto pageBuffer = std::make_unique<uint8_t[]>(LBUG_PAGE_SIZE);
     page_idx_t shadowPageIdx = 1; // Skip header page.
+    auto* bm = MemoryManager::Get(context)->getBufferManager();
     auto dataFH = storageManager.getDataFH();
-    auto dataFileInfo = dataFH->getFileInfo();
+    std::unordered_set<FileHandle*> modifiedFiles;
     DASSERT(shadowingFH);
     for (const auto& record : shadowPageRecords) {
         shadowingFH->readPageFromDisk(pageBuffer.get(), shadowPageIdx++);
-        dataFileInfo->writeFile(pageBuffer.get(), LBUG_PAGE_SIZE,
+        FileHandle* targetFH = (dataFH && record.originalFileIdx == dataFH->getFileIndex()) ?
+                                   dataFH :
+                                   bm->getFileHandle(record.originalFileIdx);
+        DASSERT(targetFH && targetFH->getFileInfo());
+        targetFH->getFileInfo()->writeFile(pageBuffer.get(), LBUG_PAGE_SIZE,
             record.originalPageIdx * LBUG_PAGE_SIZE);
+        modifiedFiles.insert(targetFH);
         // Acquire page state lock before updating the in-memory frame. This ensures concurrent
         // optimistic readers will detect the version change and retry, seeing the new page data.
-        MemoryManager::Get(context)->getBufferManager()->updateFrameIfPageIsInFrame(
-            record.originalFileIdx, pageBuffer.get(), record.originalPageIdx);
+        bm->updateFrameIfPageIsInFrame(record.originalFileIdx, pageBuffer.get(),
+            record.originalPageIdx);
     }
-    dataFileInfo->syncFile();
+    for (auto* fh : modifiedFiles) {
+        fh->getFileInfo()->syncFile();
+    }
+    if (modifiedFiles.empty() && dataFH && dataFH->getFileInfo()) {
+        dataFH->getFileInfo()->syncFile();
+    }
 }
 
 static uuid getOldDatabaseID(FileInfo& dataFileInfo) {
@@ -195,7 +251,7 @@ static uuid getOldDatabaseID(FileInfo& dataFileInfo) {
 }
 
 void ShadowFile::replayShadowPageRecords(ClientContext& context) {
-    replayShadowPageRecords(context, context.getDatabasePath());
+    replayShadowPageRecords(context, context.getDatabase()->getStorageManager()->getDataFilePath());
 }
 
 void ShadowFile::replayShadowPageRecords(ClientContext& context, const std::string& databasePath,
@@ -219,7 +275,7 @@ void ShadowFile::replayShadowPageRecords(ClientContext& context, const std::stri
             "to do so, please delete this file and restart the database.",
             shadowFilePath));
     }
-    replayShadowPageRecordsCore(*shadowFileInfo, *dataFileInfo,
+    replayShadowPageRecordsCore(context, *shadowFileInfo, *dataFileInfo,
         context.getDBConfig()->maxDBSize / LBUG_PAGE_SIZE, legacyDatabaseID);
 }
 
@@ -233,11 +289,11 @@ void ShadowFile::replayShadowPageRecordsForStorageManager(ClientContext& context
                                "the database with read-write mode to replay shadow pages.");
     }
     auto vfs = VirtualFileSystem::GetUnsafe(context);
-    auto shadowFilePath = StorageUtils::getShadowFilePath(storageManager.getDatabasePath());
+    auto shadowFilePath = StorageUtils::getShadowFilePath(storageManager.getDataFilePath());
     auto shadowFileInfo = vfs->openFile(shadowFilePath, FileOpenFlags(FileFlags::READ_ONLY));
     auto* dataFH = storageManager.getDataFH();
-    replayShadowPageRecordsCore(*shadowFileInfo, *dataFH->getFileInfo(),
-        context.getDBConfig()->maxDBSize / LBUG_PAGE_SIZE, legacyDatabaseID);
+    replayShadowPageRecordsCore(context, *shadowFileInfo, *dataFH->getFileInfo(),
+        context.getDBConfig()->maxDBSize / LBUG_PAGE_SIZE, legacyDatabaseID, &storageManager);
     const auto fileSize = dataFH->getFileInfo()->getFileSize();
     const auto numPages = (fileSize + dataFH->getPageSize() - 1) / dataFH->getPageSize();
     if (numPages > dataFH->getNumPages()) {
@@ -245,8 +301,9 @@ void ShadowFile::replayShadowPageRecordsForStorageManager(ClientContext& context
     }
 }
 
-void ShadowFile::replayShadowPageRecordsCore(FileInfo& shadowFileInfo, FileInfo& dataFileInfo,
-    uint64_t maxDatabasePages, std::optional<uuid> legacyDatabaseID) {
+void ShadowFile::replayShadowPageRecordsCore(ClientContext& context, FileInfo& shadowFileInfo,
+    FileInfo& dataFileInfo, uint64_t maxDatabasePages, std::optional<uuid> legacyDatabaseID,
+    StorageManager* storageManager) {
     const auto shadowFileSize = shadowFileInfo.getFileSize();
     if (shadowFileSize < LBUG_PAGE_SIZE + sizeof(uint64_t)) {
         throw RuntimeException(
@@ -256,6 +313,17 @@ void ShadowFile::replayShadowPageRecordsCore(FileInfo& shadowFileInfo, FileInfo&
     const auto headerBuffer = std::make_unique<uint8_t[]>(LBUG_PAGE_SIZE);
     shadowFileInfo.readFromFile(headerBuffer.get(), LBUG_PAGE_SIZE, 0);
     memcpy(&header, headerBuffer.get(), sizeof(ShadowFileHeader));
+    if (header.fileManifestVersion != 0 && header.fileManifestVersion != FILE_MANIFEST_VERSION) {
+        throw RuntimeException(std::format("Cannot replay shadow file {}: unsupported target-file "
+                                           "manifest version {}.",
+            shadowFileInfo.path, header.fileManifestVersion));
+    }
+    if (storageManager && storageManager->isDecoupledStorage() && header.fileManifestVersion == 0) {
+        throw RuntimeException(std::format("Cannot recover committed checkpoint: shadow file {} "
+                                           "has no target-file manifest for decoupled storage. "
+                                           "Keep the WAL and shadow files in place.",
+            shadowFileInfo.path));
+    }
     const auto maxShadowPagesInFile = shadowFileSize / LBUG_PAGE_SIZE - 1;
     if (header.numShadowPages == INVALID_PAGE_IDX || header.numShadowPages > maxShadowPagesInFile) {
         throw RuntimeException(
@@ -330,14 +398,86 @@ void ShadowFile::replayShadowPageRecordsCore(FileInfo& shadowFileInfo, FileInfo&
         records.push_back(record);
     }
 
+    // Persisted file indices only identify entries in this manifest. Never resolve them through
+    // the recovering process's buffer manager: its file-opening order may be different.
+    std::unordered_map<file_idx_t, ShadowFileTarget> targets;
+    file_idx_t metadataFileIdx = INVALID_FILE_IDX;
+    const auto dataPath = std::filesystem::path(dataFileInfo.path).lexically_normal();
+    if (header.fileManifestVersion != 0) {
+        auto requireBytes = [&](uint64_t size) {
+            const auto offset = deSer.getReadOffset();
+            if (offset > shadowFileSize || size > shadowFileSize - offset) {
+                throw RuntimeException(std::format("Cannot replay shadow file {}: target-file "
+                                                   "manifest is truncated.",
+                    shadowFileInfo.path));
+            }
+        };
+        requireBytes(sizeof(uint64_t));
+        uint64_t numTargets = 0;
+        deSer.deserializeValue(numTargets);
+        const auto minEntrySize = sizeof(file_idx_t) + sizeof(page_idx_t) + sizeof(uint64_t);
+        if (numTargets == 0 ||
+            numTargets > (shadowFileSize - deSer.getReadOffset()) / minEntrySize) {
+            throw RuntimeException(std::format("Cannot replay shadow file {}: invalid target-file "
+                                               "manifest size {}.",
+                shadowFileInfo.path, numTargets));
+        }
+        std::unordered_set<std::string> paths;
+        uint64_t totalTargetPages = 0;
+        for (uint64_t i = 0; i < numTargets; ++i) {
+            requireBytes(sizeof(file_idx_t) + sizeof(page_idx_t) + sizeof(uint64_t));
+            ShadowFileTarget target{};
+            deSer.deserializeValue(target.fileIdx);
+            deSer.deserializeValue(target.numPages);
+            uint64_t pathLength = 0;
+            deSer.deserializeValue(pathLength);
+            requireBytes(pathLength);
+            if (pathLength > 4096 || target.fileIdx == INVALID_FILE_IDX ||
+                target.numPages > maxDatabasePages - totalTargetPages) {
+                throw RuntimeException(std::format("Cannot replay shadow file {}: invalid "
+                                                   "target-file manifest entry.",
+                    shadowFileInfo.path));
+            }
+            target.relativePath.resize(pathLength);
+            deSer.read(reinterpret_cast<uint8_t*>(target.relativePath.data()), pathLength);
+            if (!isValidTargetPath(target.relativePath, dataPath.filename().string()) ||
+                !paths.insert(target.relativePath).second || targets.contains(target.fileIdx)) {
+                throw RuntimeException(std::format("Cannot replay shadow file {}: invalid or "
+                                                   "duplicate target-file path {}.",
+                    shadowFileInfo.path, target.relativePath));
+            }
+            totalTargetPages += target.numPages;
+            if (target.relativePath == dataPath.filename().string()) {
+                metadataFileIdx = target.fileIdx;
+                target.fileInfo = &dataFileInfo;
+            }
+            targets.emplace(target.fileIdx, std::move(target));
+        }
+        if (metadataFileIdx == INVALID_FILE_IDX) {
+            throw RuntimeException(std::format("Cannot replay shadow file {}: metadata file is "
+                                               "missing from the target-file manifest.",
+                shadowFileInfo.path));
+        }
+        for (const auto& record : records) {
+            auto target = targets.find(record.originalFileIdx);
+            if (target == targets.end() || record.originalPageIdx >= target->second.numPages) {
+                throw RuntimeException(std::format("Cannot replay shadow file {}: invalid target "
+                                                   "file or page {}.",
+                    shadowFileInfo.path, record.originalPageIdx));
+            }
+        }
+    }
+
     // The last database header page record identifies both the checkpoint's Database ID and,
     // through the header's dataFileNumPages, the page extent the checkpoint allocated. Failed
     // pre-marker checkpoint attempts can leave that extent ahead of the physical file size, so
     // the extent recorded in the committed checkpoint is the only valid upper bound for target
     // pages, not the physical file size plus the shadow page count.
     const auto headerRecord =
-        std::find_if(records.rbegin(), records.rend(), [](const auto& record) {
-            return record.originalPageIdx == StorageConstants::DB_HEADER_PAGE_IDX;
+        std::find_if(records.rbegin(), records.rend(), [&](const auto& record) {
+            return record.originalPageIdx == StorageConstants::DB_HEADER_PAGE_IDX &&
+                   (metadataFileIdx == INVALID_FILE_IDX ||
+                       record.originalFileIdx == metadataFileIdx);
         });
     if (headerRecord == records.rend()) {
         throw RuntimeException(std::format(
@@ -362,11 +502,54 @@ void ShadowFile::replayShadowPageRecordsCore(FileInfo& shadowFileInfo, FileInfo&
             "database file it was written for.",
             shadowFileInfo.path, dataFileInfo.path));
     }
-    for (const auto& record : records) {
-        if (record.originalPageIdx >= checkpointHeader.dataFileNumPages) {
+    if (header.fileManifestVersion == 0) {
+        for (const auto& record : records) {
+            if (record.originalFileIdx != headerRecord->originalFileIdx ||
+                record.originalPageIdx >= checkpointHeader.dataFileNumPages) {
+                throw RuntimeException(
+                    std::format("Cannot replay shadow file {}: invalid target page {}.",
+                        shadowFileInfo.path, record.originalPageIdx));
+            }
+        }
+    } else {
+        if (targets.at(metadataFileIdx).numPages != checkpointHeader.dataFileNumPages) {
             throw RuntimeException(
-                std::format("Cannot replay shadow file {}: invalid target page {}.",
-                    shadowFileInfo.path, record.originalPageIdx));
+                std::format("Cannot replay shadow file {}: metadata extent does not match the "
+                            "target-file manifest.",
+                    shadowFileInfo.path));
+        }
+        auto* vfs = VirtualFileSystem::GetUnsafe(context);
+        const auto openFiles = storageManager && storageManager->getFileRegistry() ?
+                                   storageManager->getFileRegistry()->getAllFiles() :
+                                   std::vector<FileHandle*>{};
+        // Resolve and validate every file before the first write. A missing file must leave the
+        // committed WAL/shadow bundle and all existing data files intact for a later retry.
+        for (auto& [_, target] : targets) {
+            if (target.fileInfo) {
+                continue;
+            }
+            const auto targetPath = dataPath.parent_path() / target.relativePath;
+            for (auto* fh : openFiles) {
+                if (fh->getFileInfo() &&
+                    std::filesystem::path(fh->getFileInfo()->path).lexically_normal() ==
+                        targetPath) {
+                    target.fileHandle = fh;
+                    target.fileInfo = fh->getFileInfo();
+                    break;
+                }
+            }
+            if (!target.fileInfo) {
+                target.ownedFileInfo = vfs->openFile(targetPath.string(),
+                    FileOpenFlags(FileFlags::READ_ONLY | FileFlags::WRITE,
+                        FileLockType::WRITE_LOCK),
+                    &context);
+                target.fileInfo = target.ownedFileInfo.get();
+            }
+            if (target.fileInfo->getFileSize() / LBUG_PAGE_SIZE > maxDatabasePages) {
+                throw RuntimeException(std::format("Cannot replay shadow file {}: target file {} "
+                                                   "exceeds the configured maximum size.",
+                    shadowFileInfo.path, target.relativePath));
+            }
         }
     }
 
@@ -375,19 +558,74 @@ void ShadowFile::replayShadowPageRecordsCore(FileInfo& shadowFileInfo, FileInfo&
     for (const auto& record : records) {
         shadowFileInfo.readFromFile(pageBuffer.get(), LBUG_PAGE_SIZE,
             shadowPageIdx * LBUG_PAGE_SIZE);
-        dataFileInfo.writeFile(pageBuffer.get(), LBUG_PAGE_SIZE,
+        auto* target =
+            header.fileManifestVersion == 0 ? nullptr : &targets.at(record.originalFileIdx);
+        auto* fileInfo = target ? target->fileInfo : &dataFileInfo;
+        fileInfo->writeFile(pageBuffer.get(), LBUG_PAGE_SIZE,
             record.originalPageIdx * LBUG_PAGE_SIZE);
+        if (target && target->fileHandle) {
+            MemoryManager::Get(context)->getBufferManager()->updateFrameIfPageIsInFrame(
+                target->fileHandle->getFileIndex(), pageBuffer.get(), record.originalPageIdx);
+        }
         shadowPageIdx++;
     }
-    dataFileInfo.syncFile();
+    if (header.fileManifestVersion == 0) {
+        dataFileInfo.syncFile();
+    } else {
+        for (auto& [_, target] : targets) {
+            target.fileInfo->syncFile();
+        }
+    }
 }
 
 void ShadowFile::flushAll(const uuid& ownerDatabaseID) const {
+    std::vector<ShadowFileTarget> targets;
+    if (multiFile) {
+        auto dataPath = std::filesystem::path(shadowFilePath);
+        dataPath.replace_extension();
+        dataPath = dataPath.lexically_normal();
+        std::unordered_set<file_idx_t> seen;
+        std::unordered_set<std::string> syncedDirectories;
+        auto files = owningStorageManager->getFileRegistry()->getAllFiles();
+        files.push_back(owningStorageManager->getDataFH());
+        // Include files written directly by COPY/new-chunk flushing as well as shadowed files.
+        // They also need durability and existence checks before publishing/replaying metadata.
+        for (auto* fh : files) {
+            if (!seen.insert(fh->getFileIndex()).second) {
+                continue;
+            }
+            DASSERT(fh && fh->getFileInfo());
+            const auto path = std::filesystem::path(fh->getFileInfo()->path).lexically_normal();
+            const auto relativePath = path.lexically_relative(dataPath.parent_path()).string();
+            if (!isValidTargetPath(relativePath, dataPath.filename().string())) {
+                throw RuntimeException(std::format("Cannot checkpoint target file {} outside "
+                                                   "the decoupled database layout.",
+                    path.string()));
+            }
+            ShadowFileTarget target{};
+            target.fileIdx = fh->getFileIndex();
+            target.numPages = fh->getNumPages();
+            target.relativePath = relativePath;
+            targets.push_back(std::move(target));
+            // New COPY pages and directory entries must be durable before the WAL's checkpoint
+            // marker. Recovery opens existing files only; it must never silently recreate one.
+            fh->getFileInfo()->syncFile();
+            auto directoryEntry = path;
+            while (directoryEntry != dataPath.parent_path()) {
+                if (syncedDirectories.insert(directoryEntry.parent_path().string()).second) {
+                    vfs->syncParentDirectory(directoryEntry.string());
+                }
+                directoryEntry = directoryEntry.parent_path();
+            }
+        }
+        vfs->syncParentDirectory(dataPath.parent_path().string());
+    }
     // Write header page to file.
     ShadowFileHeader header;
     header.numShadowPages = shadowPageRecords.size();
     header.databaseID = CHECKPOINT_BUNDLE_DATABASE_ID;
     header.ownerDatabaseID = ownerDatabaseID;
+    header.fileManifestVersion = multiFile ? FILE_MANIFEST_VERSION : 0;
     const auto headerBuffer = std::make_unique<uint8_t[]>(LBUG_PAGE_SIZE);
     memcpy(headerBuffer.get(), &header, sizeof(ShadowFileHeader));
     DASSERT(shadowingFH && !shadowingFH->isInMemoryMode());
@@ -400,6 +638,9 @@ void ShadowFile::flushAll(const uuid& ownerDatabaseID) const {
     Serializer ser(writer);
     DASSERT(shadowPageRecords.size() + 1 == shadowingFH->getNumPages());
     ser.serializeVector(shadowPageRecords);
+    if (multiFile) {
+        ser.serializeVector(targets);
+    }
     writer->flush();
     // Sync the file to disk.
     writer->sync();

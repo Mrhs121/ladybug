@@ -24,9 +24,11 @@
 #include "catalog/catalog_entry/table_catalog_entry.h"
 #include "common/checksum.h"
 #include "common/exception/runtime.h"
+#include "common/file_system/local_file_system.h"
 #include "common/file_system/virtual_file_system.h"
 #include "common/serializer/buffer_reader.h"
 #include "common/serializer/buffer_writer.h"
+#include "common/serializer/buffered_file.h"
 #include "common/serializer/deserializer.h"
 #include "common/serializer/in_mem_file_writer.h"
 #include "common/serializer/serializer.h"
@@ -348,6 +350,362 @@ TEST_F(FlakyCheckpointerTest, RecoverFromCheckpointApplyingShadowFailure) {
     };
     FlakyCheckpointer flakyCheckpointer(initFlakyCheckpointer);
     runTest(flakyCheckpointer);
+}
+
+class DecoupledCheckpointRecoveryTest : public PrivateApiTest {
+public:
+    std::string getInputDir() override { return "empty"; }
+
+    void SetUp() override {
+        BaseGraphTest::SetUp();
+        if (inMemMode) {
+            GTEST_SKIP();
+        }
+        removeDir(databasePath);
+        systemConfig->enableDecoupledStorage = true;
+        systemConfig->autoCheckpoint = false;
+        systemConfig->forceCheckpointOnClose = false;
+        systemConfig->enableCompression = false;
+        createDBAndConn();
+    }
+
+    void TearDown() override {
+        BaseGraphTest::TearDown();
+        if (!inMemMode) {
+            removeDir(std::filesystem::path(databasePath).parent_path().string());
+        }
+    }
+
+    std::string metadataPath() const {
+        return (std::filesystem::path(databasePath) / "metadata.db").string();
+    }
+
+    void prepareInterruptedCheckpoint() {
+        for (const auto& query : {"CREATE NODE TABLE N(id INT64 PRIMARY KEY, name STRING);",
+                 "CREATE REL TABLE R(FROM N TO N, weight INT64, label STRING);"}) {
+            auto result = conn->query(query);
+            ASSERT_TRUE(result->isSuccess()) << result->getErrorMessage();
+        }
+        insertNodes(0, 64);
+        ASSERT_TRUE(conn->query("MATCH (a:N), (b:N) WHERE b.id = (a.id + 1) % 64 "
+                                "CREATE (a)-[:R {weight: a.id, label: 'old'}]->(b);")
+                        ->isSuccess());
+        ASSERT_TRUE(conn->query("CHECKPOINT;")->isSuccess());
+        insertNodes(64, 128);
+        for (const auto& query : {"MATCH (n:N) SET n.name = 'node_' + CAST(n.id AS STRING);",
+                 "MATCH (a:N)-[r:R]->() SET r.weight = a.id * 17, "
+                 "r.label = 'edge_' + CAST(a.id AS STRING);",
+                 "MATCH (a:N), (b:N) WHERE a.id >= 64 AND b.id = (a.id + 1) % 128 "
+                 "CREATE (a)-[:R {weight: a.id * 17, "
+                 "label: 'edge_' + CAST(a.id AS STRING)}]->(b);",
+                 "CREATE NODE TABLE Late(id INT64 PRIMARY KEY, name STRING);",
+                 "CREATE NODE TABLE Empty(id INT64 PRIMARY KEY);",
+                 "CREATE (:Late {id: 999, name: 'created_before_crash'});"}) {
+            auto result = conn->query(query);
+            ASSERT_TRUE(result->isSuccess()) << result->getErrorMessage();
+        }
+        auto* context = getClientContext(*conn);
+        FlakyCheckpointer flaky([](main::ClientContext& context) {
+            return std::make_unique<FlakyCheckpointerFailsOnApplyingShadow>(context);
+        });
+        flaky.setCheckpointer(*context);
+        auto result = conn->query("CHECKPOINT;");
+        ASSERT_FALSE(result->isSuccess());
+        ASSERT_NE(result->getErrorMessage().find("checkpoint failed"), std::string::npos)
+            << result->getErrorMessage();
+        FlakyCheckpointer::resetCheckpointer(*context);
+        ASSERT_TRUE(std::filesystem::exists(StorageUtils::getShadowFilePath(metadataPath())));
+        ASSERT_TRUE(
+            std::filesystem::exists(StorageUtils::getCheckpointWALFilePath(metadataPath())));
+        conn.reset();
+        database.reset();
+    }
+
+    void checkRecoveredGraph() {
+        auto result = conn->query("MATCH (n:N) RETURN n.id, n.name ORDER BY n.id;");
+        ASSERT_TRUE(result->isSuccess()) << result->getErrorMessage();
+        for (int64_t id = 0; id < 128; ++id) {
+            ASSERT_TRUE(result->hasNext());
+            auto row = result->getNext();
+            EXPECT_EQ(row->getValue(0)->getValue<int64_t>(), id);
+            EXPECT_EQ(row->getValue(1)->getValue<std::string>(), std::format("node_{}", id));
+        }
+        EXPECT_FALSE(result->hasNext());
+        for (const auto& query :
+            {"MATCH (a:N)-[r:R]->(b:N) RETURN a.id, b.id, r.weight, r.label ORDER BY a.id;",
+                "MATCH (b:N)<-[r:R]-(a:N) RETURN a.id, b.id, r.weight, r.label ORDER BY a.id;"}) {
+            result = conn->query(query);
+            ASSERT_TRUE(result->isSuccess()) << result->getErrorMessage();
+            for (int64_t id = 0; id < 128; ++id) {
+                ASSERT_TRUE(result->hasNext());
+                auto row = result->getNext();
+                EXPECT_EQ(row->getValue(0)->getValue<int64_t>(), id);
+                EXPECT_EQ(row->getValue(1)->getValue<int64_t>(), (id + 1) % (id < 64 ? 64 : 128));
+                EXPECT_EQ(row->getValue(2)->getValue<int64_t>(), id * 17);
+                EXPECT_EQ(row->getValue(3)->getValue<std::string>(), std::format("edge_{}", id));
+            }
+            EXPECT_FALSE(result->hasNext());
+        }
+        for (int64_t id : {0, 63, 64, 127}) {
+            result = conn->query(std::format("MATCH (n:N {{id: {}}}) RETURN n.name;", id));
+            ASSERT_TRUE(result->isSuccess()) << result->getErrorMessage();
+            ASSERT_TRUE(result->hasNext());
+            EXPECT_EQ(result->getNext()->getValue(0)->getValue<std::string>(),
+                std::format("node_{}", id));
+            EXPECT_FALSE(result->hasNext());
+        }
+        result = conn->query("MATCH (n:Late {id: 999}) RETURN n.name;");
+        ASSERT_TRUE(result->isSuccess()) << result->getErrorMessage();
+        ASSERT_TRUE(result->hasNext());
+        EXPECT_EQ(result->getNext()->getValue(0)->getValue<std::string>(), "created_before_crash");
+        result = conn->query("MATCH (n:Empty) RETURN count(*);");
+        ASSERT_TRUE(result->isSuccess()) << result->getErrorMessage();
+        ASSERT_TRUE(result->hasNext());
+        EXPECT_EQ(result->getNext()->getValue(0)->getValue<int64_t>(), 0);
+        EXPECT_FALSE(std::filesystem::exists(StorageUtils::getShadowFilePath(metadataPath())));
+        EXPECT_FALSE(
+            std::filesystem::exists(StorageUtils::getCheckpointWALFilePath(metadataPath())));
+    }
+
+    struct Target {
+        file_idx_t fileIdx;
+        page_idx_t numPages;
+        std::string path;
+        uint64_t entryOffset;
+        uint64_t pathOffset;
+    };
+
+    std::vector<Target> readTargets() const {
+        common::LocalFileSystem fs{databasePath};
+        auto file = fs.openFile(StorageUtils::getShadowFilePath(metadataPath()),
+            FileOpenFlags(FileFlags::READ_ONLY));
+        ShadowFileHeader header;
+        file->readFromFile(reinterpret_cast<uint8_t*>(&header), sizeof(header), 0);
+        const auto offset = (static_cast<uint64_t>(header.numShadowPages) + 1) * LBUG_PAGE_SIZE +
+                            sizeof(uint64_t) +
+                            header.numShadowPages * (sizeof(file_idx_t) + sizeof(page_idx_t));
+        auto reader = std::make_unique<common::BufferedFileReader>(*file);
+        reader->resetReadOffset(offset);
+        Deserializer deserializer{std::move(reader)};
+        uint64_t count = 0;
+        deserializer.deserializeValue(count);
+        std::vector<Target> targets;
+        for (uint64_t i = 0; i < count; ++i) {
+            Target target{};
+            target.entryOffset = deserializer.getReadOffset();
+            deserializer.deserializeValue(target.fileIdx);
+            deserializer.deserializeValue(target.numPages);
+            target.pathOffset = deserializer.getReadOffset() + sizeof(uint64_t);
+            deserializer.deserializeValue(target.path);
+            targets.push_back(std::move(target));
+        }
+        return targets;
+    }
+
+    std::unordered_map<std::string, std::vector<uint8_t>> readDataFiles() const {
+        std::unordered_map<std::string, std::vector<uint8_t>> files;
+        for (const auto& entry : std::filesystem::recursive_directory_iterator(databasePath)) {
+            if (entry.is_regular_file() &&
+                (entry.path().filename() == "metadata.db" || entry.path().extension() == ".data" ||
+                    entry.path().extension() == ".idx" || entry.path().extension() == ".topo")) {
+                files.emplace(entry.path().string(), readFile(entry.path().string()));
+            }
+        }
+        return files;
+    }
+
+private:
+    void insertNodes(int64_t begin, int64_t end) {
+        for (auto id = begin; id < end; ++id) {
+            auto result = conn->query(std::format("CREATE (:N {{id: {}, name: 'old'}});", id));
+            ASSERT_TRUE(result->isSuccess()) << result->getErrorMessage();
+        }
+    }
+};
+
+class DecoupledCheckpointApplyTest : public DecoupledCheckpointRecoveryTest,
+                                     public ::testing::WithParamInterface<bool> {};
+
+TEST_P(DecoupledCheckpointApplyTest, RecoversAllFilesWithoutRuntimeFileIndices) {
+    ASSERT_NO_FATAL_FAILURE(prepareInterruptedCheckpoint());
+    auto targets = readTargets();
+    ASSERT_EQ(targets.size(), 9u); // Metadata, three node props/index pairs, R topology and props.
+    common::LocalFileSystem fs{databasePath};
+    auto shadow = fs.openFile(StorageUtils::getShadowFilePath(metadataPath()),
+        FileOpenFlags(FileFlags::READ_ONLY | FileFlags::WRITE));
+    ShadowFileHeader header;
+    shadow->readFromFile(reinterpret_cast<uint8_t*>(&header), sizeof(header), 0);
+    ASSERT_EQ(header.fileManifestVersion, 1u);
+    const auto recordsOffset = (static_cast<uint64_t>(header.numShadowPages) + 1) * LBUG_PAGE_SIZE;
+    bool applied = false;
+    const file_idx_t delta = 10000;
+    for (page_idx_t i = 0; i < header.numShadowPages; ++i) {
+        const auto offset =
+            recordsOffset + sizeof(uint64_t) + i * (sizeof(file_idx_t) + sizeof(page_idx_t));
+        file_idx_t fileIdx;
+        page_idx_t pageIdx;
+        shadow->readFromFile(reinterpret_cast<uint8_t*>(&fileIdx), sizeof(fileIdx), offset);
+        shadow->readFromFile(reinterpret_cast<uint8_t*>(&pageIdx), sizeof(pageIdx),
+            offset + sizeof(file_idx_t));
+        auto target = std::find_if(targets.begin(), targets.end(),
+            [&](const auto& target) { return target.fileIdx == fileIdx; });
+        ASSERT_NE(target, targets.end());
+        if (GetParam() && !applied && target->path != "metadata.db") {
+            std::array<uint8_t, LBUG_PAGE_SIZE> page{};
+            shadow->readFromFile(page.data(), page.size(), (i + 1) * LBUG_PAGE_SIZE);
+            auto file = fs.openFile((std::filesystem::path(databasePath) / target->path).string(),
+                FileOpenFlags(FileFlags::READ_ONLY | FileFlags::WRITE));
+            file->writeFile(page.data(), page.size(), pageIdx * LBUG_PAGE_SIZE);
+            file->syncFile();
+            applied = true;
+        }
+        fileIdx += delta;
+        shadow->writeFile(reinterpret_cast<const uint8_t*>(&fileIdx), sizeof(fileIdx), offset);
+    }
+    EXPECT_EQ(applied, GetParam());
+    for (const auto& target : targets) {
+        const auto fileIdx = target.fileIdx + delta;
+        shadow->writeFile(reinterpret_cast<const uint8_t*>(&fileIdx), sizeof(fileIdx),
+            target.entryOffset);
+    }
+    shadow->syncFile();
+    shadow.reset();
+    systemConfig->enableDecoupledStorage = false; // Exercise directory auto-detection on recovery.
+    ASSERT_NO_THROW(createDBAndConn());
+    ASSERT_NO_FATAL_FAILURE(checkRecoveredGraph());
+    ASSERT_TRUE(conn->query("CREATE (:N {id: 128, name: 'after_recovery'});")->isSuccess());
+    ASSERT_TRUE(conn->query("CHECKPOINT;")->isSuccess());
+    conn.reset();
+    database.reset();
+    ASSERT_NO_THROW(createDBAndConn());
+    auto result = conn->query("MATCH (n:N {id: 128}) RETURN n.name;");
+    ASSERT_TRUE(result->isSuccess()) << result->getErrorMessage();
+    ASSERT_TRUE(result->hasNext());
+    EXPECT_EQ(result->getNext()->getValue(0)->getValue<std::string>(), "after_recovery");
+}
+
+INSTANTIATE_TEST_SUITE_P(ShadowApply, DecoupledCheckpointApplyTest, ::testing::Bool(),
+    [](const ::testing::TestParamInfo<bool>& info) {
+        return info.param ? "PartiallyApplied" : "NotApplied";
+    });
+
+class DecoupledCheckpointMissingFileTest : public DecoupledCheckpointRecoveryTest,
+                                           public ::testing::WithParamInterface<std::string> {};
+
+TEST_P(DecoupledCheckpointMissingFileTest, MissingTargetPreservesBundleAndCanRetry) {
+    ASSERT_NO_FATAL_FAILURE(prepareInterruptedCheckpoint());
+    const auto propsPath = std::filesystem::path(databasePath) / GetParam();
+    const auto savedPath = propsPath.string() + ".saved";
+    std::filesystem::rename(propsPath, savedPath);
+    const auto filesBefore = readDataFiles();
+    const auto shadowPath = StorageUtils::getShadowFilePath(metadataPath());
+    const auto walPath = StorageUtils::getCheckpointWALFilePath(metadataPath());
+    const auto shadowBefore = readFile(shadowPath);
+    const auto walBefore = readFile(walPath);
+    EXPECT_THROW(createDBAndConn(), common::Exception);
+    EXPECT_EQ(readDataFiles(), filesBefore);
+    EXPECT_EQ(readFile(shadowPath), shadowBefore);
+    EXPECT_EQ(readFile(walPath), walBefore);
+    EXPECT_FALSE(std::filesystem::exists(propsPath));
+    std::filesystem::rename(savedPath, propsPath);
+    ASSERT_NO_THROW(createDBAndConn());
+    ASSERT_NO_FATAL_FAILURE(checkRecoveredGraph());
+}
+
+INSTANTIATE_TEST_SUITE_P(TargetFiles, DecoupledCheckpointMissingFileTest,
+    ::testing::Values("rels/R/props.data", "nodes/Late/props.data", "metadata.db"),
+    [](const ::testing::TestParamInfo<std::string>& info) {
+        if (info.param == "metadata.db") {
+            return "Metadata";
+        }
+        return info.param.starts_with("rels") ? "Shadowed" : "DirectlyWritten";
+    });
+
+TEST_F(DecoupledCheckpointRecoveryTest, ReadOnlyOpenPreservesCommittedBundle) {
+    ASSERT_NO_FATAL_FAILURE(prepareInterruptedCheckpoint());
+    const auto filesBefore = readDataFiles();
+    const auto shadowPath = StorageUtils::getShadowFilePath(metadataPath());
+    const auto walPath = StorageUtils::getCheckpointWALFilePath(metadataPath());
+    const auto shadowBefore = readFile(shadowPath);
+    const auto walBefore = readFile(walPath);
+    auto config = *systemConfig;
+    config.readOnly = true;
+    config.enableDecoupledStorage = false;
+    EXPECT_THROW((main::Database{databasePath, config}), RuntimeException);
+    EXPECT_EQ(readDataFiles(), filesBefore);
+    EXPECT_EQ(readFile(shadowPath), shadowBefore);
+    EXPECT_EQ(readFile(walPath), walBefore);
+    ASSERT_NO_THROW(createDBAndConn());
+    ASSERT_NO_FATAL_FAILURE(checkRecoveredGraph());
+}
+
+class DecoupledCheckpointManifestTest : public DecoupledCheckpointRecoveryTest,
+                                        public ::testing::WithParamInterface<std::string> {};
+
+TEST_P(DecoupledCheckpointManifestTest, RejectsInvalidManifestBeforeWriting) {
+    ASSERT_NO_FATAL_FAILURE(prepareInterruptedCheckpoint());
+    const auto targets = readTargets();
+    auto target = std::find_if(targets.begin(), targets.end(),
+        [](const auto& target) { return target.path == "rels/R/props.data"; });
+    ASSERT_NE(target, targets.end());
+    const auto shadowPath = StorageUtils::getShadowFilePath(metadataPath());
+    const auto walPath = StorageUtils::getCheckpointWALFilePath(metadataPath());
+    common::LocalFileSystem fs{databasePath};
+    auto shadow = fs.openFile(shadowPath, FileOpenFlags(FileFlags::READ_ONLY | FileFlags::WRITE));
+    if (GetParam() == "Truncated") {
+        shadow->truncate(shadow->getFileSize() - 1);
+    } else if (GetParam() == "InvalidPath") {
+        const std::string traversal = "../x/R/props.data";
+        ASSERT_EQ(traversal.size(), target->path.size());
+        shadow->writeFile(reinterpret_cast<const uint8_t*>(traversal.data()), traversal.size(),
+            target->pathOffset);
+    } else if (GetParam() == "MissingManifest") {
+        ShadowFileHeader header;
+        shadow->readFromFile(reinterpret_cast<uint8_t*>(&header), sizeof(header), 0);
+        header.fileManifestVersion = 0;
+        shadow->writeFile(reinterpret_cast<const uint8_t*>(&header), sizeof(header), 0);
+    } else {
+        const page_idx_t invalidExtent = 1;
+        shadow->writeFile(reinterpret_cast<const uint8_t*>(&invalidExtent), sizeof(invalidExtent),
+            target->entryOffset + sizeof(file_idx_t));
+    }
+    shadow->syncFile();
+    shadow.reset();
+    const auto filesBefore = readDataFiles();
+    const auto shadowBefore = readFile(shadowPath);
+    const auto walBefore = readFile(walPath);
+    EXPECT_THROW(createDBAndConn(), RuntimeException);
+    EXPECT_EQ(readDataFiles(), filesBefore);
+    EXPECT_EQ(readFile(shadowPath), shadowBefore);
+    EXPECT_EQ(readFile(walPath), walBefore);
+}
+
+INSTANTIATE_TEST_SUITE_P(Manifest, DecoupledCheckpointManifestTest,
+    ::testing::Values("Truncated", "InvalidPath", "MissingManifest", "InvalidExtent"));
+
+TEST_F(DecoupledCheckpointRecoveryTest, ReplaysWALAndAddedPropertiesWithoutCheckpoint) {
+    ASSERT_TRUE(conn->query("CREATE NODE TABLE N(id INT64 PRIMARY KEY);")->isSuccess());
+    ASSERT_TRUE(conn->query("CREATE (:N {id: 1});")->isSuccess());
+    ASSERT_TRUE(conn->query("CHECKPOINT;")->isSuccess());
+    for (const auto& query : {"ALTER TABLE N ADD label STRING DEFAULT 'default';",
+             "MATCH (n:N) SET n.label = 'replayed';", "CREATE (:N {id: 2, label: 'new'});"}) {
+        auto result = conn->query(query);
+        ASSERT_TRUE(result->isSuccess()) << result->getErrorMessage();
+    }
+    conn.reset();
+    database.reset();
+    ASSERT_NO_THROW(createDBAndConn());
+    ASSERT_TRUE(conn->query("CHECKPOINT;")->isSuccess());
+    conn.reset();
+    database.reset();
+    ASSERT_NO_THROW(createDBAndConn());
+    auto result = conn->query("MATCH (n:N) RETURN n.id, n.label ORDER BY n.id;");
+    ASSERT_TRUE(result->isSuccess()) << result->getErrorMessage();
+    ASSERT_TRUE(result->hasNext());
+    EXPECT_EQ(result->getNext()->getValue(1)->getValue<std::string>(), "replayed");
+    ASSERT_TRUE(result->hasNext());
+    EXPECT_EQ(result->getNext()->getValue(1)->getValue<std::string>(), "new");
+    EXPECT_FALSE(result->hasNext());
 }
 
 TEST_F(CheckpointRetryAfterFailureTest, RetryAfterFailureWithDurableCheckpointRecord) {

@@ -31,6 +31,9 @@ struct ShadowFileHeader {
     // can refuse to decide the bundle's fate instead of discarding its shadow. Zero means the
     // header predates bundle ownership stamping and is treated as the file's own bundle.
     common::uuid ownerDatabaseID{0};
+    // Zero is the legacy single-file format. Version 1 appends a target-file manifest after
+    // the page records, since buffer-manager file indices do not survive a restart.
+    uint64_t fileManifestVersion = 0;
 };
 static_assert(std::is_trivially_copyable_v<ShadowFileHeader>);
 
@@ -42,7 +45,8 @@ public:
     static constexpr common::uuid CHECKPOINT_BUNDLE_DATABASE_ID{
         common::int128_t{UINT64_MAX, INT64_MAX}};
 
-    ShadowFile(BufferManager& bm, common::VirtualFileSystem* vfs, const std::string& databasePath);
+    ShadowFile(BufferManager& bm, common::VirtualFileSystem* vfs, const std::string& databasePath,
+        StorageManager* owningStorageManager = nullptr);
 
     // Mutex protocol: hasShadowPage, getShadowPage, clearShadowPage, createShadowPage and
     // publishShadowPage are for the checkpointing thread only. It is the only writer of
@@ -118,14 +122,17 @@ public:
 private:
     FileHandle* getOrCreateShadowingFH();
 
-    static void replayShadowPageRecordsCore(common::FileInfo& shadowFileInfo,
-        common::FileInfo& dataFileInfo, uint64_t maxDatabasePages,
-        std::optional<common::uuid> legacyDatabaseID = std::nullopt);
+    static void replayShadowPageRecordsCore(main::ClientContext& context,
+        common::FileInfo& shadowFileInfo, common::FileInfo& dataFileInfo, uint64_t maxDatabasePages,
+        std::optional<common::uuid> legacyDatabaseID = std::nullopt,
+        StorageManager* storageManager = nullptr);
 
 private:
     BufferManager& bm;
     std::string shadowFilePath;
     common::VirtualFileSystem* vfs;
+    StorageManager* owningStorageManager;
+    bool multiFile;
     // This is the file handle for the shadow file. It is created lazily when the first shadow page
     // is created.
     FileHandle* shadowingFH;

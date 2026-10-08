@@ -98,7 +98,7 @@ uint64_t getAvailableSystemMemory() {
 SystemConfig::SystemConfig(uint64_t bufferPoolSize_, uint64_t maxNumThreads, bool enableCompression,
     bool readOnly, uint64_t maxDBSize, bool autoCheckpoint, uint64_t checkpointThreshold,
     bool forceCheckpointOnClose, bool throwOnWalReplayFailure, bool enableChecksums,
-    bool enableMultiWrites, bool enableDefaultHashIndex
+    bool enableMultiWrites, bool enableDefaultHashIndex, bool enableDecoupledStorage
 #if defined(__APPLE__)
     ,
     uint32_t threadQos
@@ -108,7 +108,8 @@ SystemConfig::SystemConfig(uint64_t bufferPoolSize_, uint64_t maxNumThreads, boo
       autoCheckpoint{autoCheckpoint}, checkpointThreshold{checkpointThreshold},
       forceCheckpointOnClose{forceCheckpointOnClose},
       throwOnWalReplayFailure(throwOnWalReplayFailure), enableChecksums(enableChecksums),
-      enableMultiWrites{enableMultiWrites}, enableDefaultHashIndex{enableDefaultHashIndex} {
+      enableMultiWrites{enableMultiWrites}, enableDefaultHashIndex{enableDefaultHashIndex},
+      enableDecoupledStorage{enableDecoupledStorage} {
 #if defined(__APPLE__)
     this->threadQos = threadQos;
 #endif
@@ -164,7 +165,14 @@ void Database::initMembers(std::string_view dbPath, construct_bm_func_t initBmFu
     clientContext.addDBDirToFileSearchPath(databasePath);
 
     if (std::filesystem::is_directory(databasePath)) {
-        throw RuntimeException("Database path cannot be a directory: " + databasePath);
+        if (std::filesystem::exists(std::filesystem::path(databasePath) / "metadata.db")) {
+            dbConfig->enableDecoupledStorage = true;
+        } else if (!dbConfig->enableDecoupledStorage) {
+            throw RuntimeException("Database path cannot be a directory: " + databasePath);
+        }
+    }
+    if (dbConfig->enableDecoupledStorage && !main::DBConfig::isDBPathInMemory(databasePath)) {
+        std::filesystem::create_directories(databasePath);
     }
     vfs = std::make_unique<VirtualFileSystem>(databasePath);
     validatePathInReadOnly();
@@ -181,7 +189,7 @@ void Database::initMembers(std::string_view dbPath, construct_bm_func_t initBmFu
     catalog = std::make_unique<Catalog>();
     storageManager = std::make_unique<StorageManager>(databasePath, dbConfig->readOnly,
         dbConfig->enableChecksums, *memoryManager, dbConfig->enableCompression,
-        dbConfig->enableDefaultHashIndex, vfs.get());
+        dbConfig->enableDefaultHashIndex, vfs.get(), dbConfig->enableDecoupledStorage);
     transactionManager = std::make_unique<TransactionManager>(storageManager->getWAL());
     databaseManager = std::make_unique<DatabaseManager>();
 

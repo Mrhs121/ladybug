@@ -313,6 +313,16 @@ void LocalFileSystem::createDir(const std::string& dir) const {
 static bool isAllowedDeletionPath(const std::string& path, const std::string& dbPath) {
     const auto p = toNativePath(path);
     const auto dbPathP = toNativePath(dbPath);
+
+    // If p is inside dbPath directory (for decoupled / directory databases)
+    if (p.is_absolute() && dbPathP.is_absolute() && p.parent_path() == dbPathP) {
+        const auto extension = p.extension().string();
+        if (extension == ".wal" || extension == ".shadow" || extension == ".tmp" ||
+            extension == ".lock" || extension == ".checkpoint") {
+            return true;
+        }
+    }
+
     const auto dbDir = dbPathP.parent_path();
     // For absolute paths, only allow deletion in the same directory as the database file.
     if (p.is_absolute() && dbPathP.is_absolute() && p.parent_path() != dbDir) {

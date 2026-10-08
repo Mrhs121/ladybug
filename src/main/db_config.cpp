@@ -38,7 +38,8 @@ DBConfig::DBConfig(const SystemConfig& systemConfig)
       forceCheckpointOnClose{systemConfig.forceCheckpointOnClose},
       throwOnWalReplayFailure(systemConfig.throwOnWalReplayFailure),
       enableChecksums(systemConfig.enableChecksums),
-      enableDefaultHashIndex{systemConfig.enableDefaultHashIndex}, enableSpillingToDisk{true} {
+      enableDefaultHashIndex{systemConfig.enableDefaultHashIndex}, enableSpillingToDisk{true},
+      enableDecoupledStorage{systemConfig.enableDecoupledStorage} {
 #if defined(__APPLE__)
     this->threadQos = systemConfig.threadQos;
 #endif

@@ -103,6 +103,8 @@ public:
         ColumnCheckpointState&& checkpointState, PageAllocator& pageAllocator,
         bool canSplitSegment = true) const;
 
+    FileHandle* getDataFH() const { return dataFH; }
+
 protected:
     // For a scan that includes a selectionVector, the startOffsetInVector should be considered to
     // be an offset for the selected positions within the selectionVector The offset of a given pos

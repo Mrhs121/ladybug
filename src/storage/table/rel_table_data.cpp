@@ -58,17 +58,18 @@ void InMemoryVersionRecordHandler::rollbackInsert(main::ClientContext* context,
     relTableData->rollbackGroupCollectionInsert(numRowsToRollback, false);
 }
 
-RelTableData::RelTableData(FileHandle* dataFH, MemoryManager* mm, ShadowFile* shadowFile,
-    const RelGroupCatalogEntry& relGroupEntry, const RelTableCatalogInfo& relTableInfo,
-    Table& table, RelDataDirection direction, table_id_t nbrTableID, bool enableCompression)
+RelTableData::RelTableData(FileHandle* topoFH, FileHandle* propsFH, MemoryManager* mm,
+    ShadowFile* shadowFile, const RelGroupCatalogEntry& relGroupEntry,
+    const RelTableCatalogInfo& relTableInfo, Table& table, RelDataDirection direction,
+    table_id_t nbrTableID, bool enableCompression)
     : table{table}, mm{mm}, shadowFile{shadowFile}, enableCompression{enableCompression},
       direction{direction}, multiplicity{relTableInfo.getMultiplicity(direction)},
       persistentVersionRecordHandler(this,
           table.getOwnerCatalogName().empty() ? nullptr : relGroupEntry.getOwningCatalog()),
       inMemoryVersionRecordHandler(this,
           table.getOwnerCatalogName().empty() ? nullptr : relGroupEntry.getOwningCatalog()) {
-    initCSRHeaderColumns(dataFH);
-    initPropertyColumns(relGroupEntry, nbrTableID, dataFH);
+    initCSRHeaderColumns(topoFH);
+    initPropertyColumns(relGroupEntry, nbrTableID, topoFH, propsFH);
     // default to using the persistent version record handler
     // if we want to use the in-memory handler, we will explicitly pass it into
     // nodeGroups.pushInsertInfo()
@@ -76,33 +77,34 @@ RelTableData::RelTableData(FileHandle* dataFH, MemoryManager* mm, ShadowFile* sh
         ResidencyState::ON_DISK, &persistentVersionRecordHandler);
 }
 
-void RelTableData::initCSRHeaderColumns(FileHandle* dataFH) {
+void RelTableData::initCSRHeaderColumns(FileHandle* topoFH) {
     // No NULL values is allowed for the csr length and offset column.
     auto csrOffsetColumnName = StorageUtils::getColumnName("", StorageUtils::ColumnType::CSR_OFFSET,
         RelDirectionUtils::relDirectionToString(direction));
     csrHeaderColumns.offset = std::make_unique<Column>(csrOffsetColumnName, LogicalType::UINT64(),
-        dataFH, mm, shadowFile, enableCompression, false /* requireNullColumn */);
+        topoFH, mm, shadowFile, enableCompression, false /* requireNullColumn */);
     auto csrLengthColumnName = StorageUtils::getColumnName("", StorageUtils::ColumnType::CSR_LENGTH,
         RelDirectionUtils::relDirectionToString(direction));
     csrHeaderColumns.length = std::make_unique<Column>(csrLengthColumnName, LogicalType::UINT64(),
-        dataFH, mm, shadowFile, enableCompression, false /* requireNullColumn */);
+        topoFH, mm, shadowFile, enableCompression, false /* requireNullColumn */);
 }
 
 void RelTableData::initPropertyColumns(const RelGroupCatalogEntry& relGroupEntry,
-    table_id_t nbrTableID, FileHandle* dataFH) {
+    table_id_t nbrTableID, FileHandle* topoFH, FileHandle* propsFH) {
     const auto maxColumnID = relGroupEntry.getMaxColumnID();
     columns.resize(maxColumnID + 1);
     auto nbrIDColName = StorageUtils::getColumnName("NBR_ID", StorageUtils::ColumnType::DEFAULT,
         RelDirectionUtils::relDirectionToString(direction));
     auto nbrIDColumn =
-        std::make_unique<InternalIDColumn>(nbrIDColName, dataFH, mm, shadowFile, enableCompression);
+        std::make_unique<InternalIDColumn>(nbrIDColName, topoFH, mm, shadowFile, enableCompression);
     columns[NBR_ID_COLUMN_ID] = std::move(nbrIDColumn);
     for (auto& property : relGroupEntry.getProperties()) {
         const auto columnID = relGroupEntry.getColumnID(property.getName());
         const auto colName = StorageUtils::getColumnName(property.getName(),
             StorageUtils::ColumnType::DEFAULT, RelDirectionUtils::relDirectionToString(direction));
-        columns[columnID] = ColumnFactory::createColumn(colName, property.getType().copy(), dataFH,
-            mm, shadowFile, enableCompression);
+        auto* targetFH = (columnID == REL_ID_COLUMN_ID) ? topoFH : propsFH;
+        columns[columnID] = ColumnFactory::createColumn(colName, property.getType().copy(),
+            targetFH, mm, shadowFile, enableCompression);
     }
     // Set common tableID for nbrIDColumn and relIDColumn.
     columns[NBR_ID_COLUMN_ID]->cast<InternalIDColumn>().setCommonTableID(nbrTableID);

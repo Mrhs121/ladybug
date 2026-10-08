@@ -834,9 +834,10 @@ std::unique_ptr<Index> PrimaryKeyIndex::load(main::ClientContext* context,
     auto storageInfoBufferReader =
         std::make_unique<BufferReader>(storageInfoBuffer.data(), storageInfoBuffer.size());
     auto storageInfo = PrimaryKeyIndexStorageInfo::deserialize(std::move(storageInfoBufferReader));
+    auto* indexFH = storageManager->getNodeIndexFH(indexInfo.tableID);
     return std::make_unique<PrimaryKeyIndex>(indexInfo, std::move(storageInfo),
-        storageManager->isInMemory(), *MemoryManager::Get(*context),
-        *storageManager->getDataFH()->getPageManager(), &storageManager->getShadowFile());
+        storageManager->isInMemory(), *MemoryManager::Get(*context), *indexFH->getPageManager(),
+        &storageManager->getShadowFile());
 }
 
 void PrimaryKeyIndex::reclaimStorage(PageAllocator& pageAllocator) const {
