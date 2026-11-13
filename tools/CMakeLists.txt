@@ -1,3 +1,8 @@
+if(iceberg_loader_path)
+    file(RELATIVE_PATH lib_from_bin "${CMAKE_INSTALL_FULL_BINDIR}" "${CMAKE_INSTALL_FULL_LIBDIR}")
+    list(APPEND CMAKE_INSTALL_RPATH "${iceberg_loader_path}/${lib_from_bin}")
+endif()
+
 if(${BUILD_SHELL})
     add_subdirectory(shell)
 endif()

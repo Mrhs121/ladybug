@@ -12,6 +12,13 @@ struct ThreadsSetting {
     static common::Value getSetting(const ClientContext* context);
 };
 
+struct IcebergScanThreadsSetting {
+    static constexpr auto name = "iceberg_scan_threads";
+    static constexpr auto inputType = common::LogicalTypeID::INT32;
+    static void setContext(ClientContext* context, const common::Value& parameter);
+    static common::Value getSetting(const ClientContext* context);
+};
+
 struct WarningLimitSetting {
     static constexpr auto name = "warning_limit";
     static constexpr auto inputType = common::LogicalTypeID::UINT64;

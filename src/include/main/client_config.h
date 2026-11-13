@@ -95,6 +95,8 @@ struct ClientConfig {
     uint64_t sparseFrontierThreshold = ClientConfigDefault::SPARSE_FRONTIER_THRESHOLD;
     // If using progress bar.
     bool enableProgressBar = ClientConfigDefault::ENABLE_PROGRESS_BAR;
+    // DuckDB scan threads for the transaction's Iceberg mapping reader.
+    int32_t icebergScanThreads = 1;
     // time before displaying progress bar
     uint64_t showProgressAfter = ClientConfigDefault::SHOW_PROGRESS_AFTER;
     // Semantic for recursive pattern, can be either WALK, TRAIL, ACYCLIC

@@ -563,6 +563,33 @@ include_directories(
 )
 endif()
 
+# Reuse the installed DuckDB package used by the foreign-table extensions. A build
+# without a lake SDK can opt in explicitly to use the pinned release SDK.
+set(DUCKDB_DIR "" CACHE PATH "DuckDB C++ SDK root for native Iceberg mappings")
+set(_iceberg_mapping_default OFF)
+if(BUILD_LBUG AND NOT CMAKE_CROSSCOMPILING AND NOT BUILD_WASM AND NOT FORCE_32_BIT AND
+   CMAKE_SIZEOF_VOID_P EQUAL 8 AND (NOT DEFINED ENABLE_ICEBERG_MAPPING OR ENABLE_ICEBERG_MAPPING))
+    if(NOT DUCKDB_DIR)
+        find_package(DuckDB CONFIG QUIET)
+    endif()
+    if(DUCKDB_DIR OR DuckDB_FOUND)
+        set(_iceberg_mapping_default ON)
+    endif()
+endif()
+option(ENABLE_ICEBERG_MAPPING "Build native Iceberg graph mappings and CSR storage" ${_iceberg_mapping_default})
+option(ENABLE_ICEBERG_DATAFUSION "Build the Rust DataFusion planner for Iceberg mappings" OFF)
+if(ENABLE_ICEBERG_DATAFUSION AND NOT ENABLE_ICEBERG_MAPPING)
+    message(FATAL_ERROR "ENABLE_ICEBERG_DATAFUSION requires ENABLE_ICEBERG_MAPPING")
+endif()
+if(BUILD_LBUG AND ENABLE_ICEBERG_MAPPING)
+    include(GNUInstallDirs)
+    if(APPLE)
+        set(iceberg_loader_path "@loader_path")
+    elseif(UNIX)
+        set(iceberg_loader_path "$ORIGIN")
+    endif()
+endif()
+
 if (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/extension/CMakeLists.txt")
     add_subdirectory(extension)
 endif ()
@@ -605,6 +632,9 @@ if(BUILD_LBUG OR BUILD_SHELL OR BUILD_JAVA OR BUILD_NODEJS OR BUILD_PYTHON OR BU
 endif ()
 
 if (${BUILD_EXAMPLES})
+    if(ENABLE_ICEBERG_MAPPING AND BUILD_LBUG)
+        add_subdirectory(examples/iceberg-query-csr)
+    endif()
     add_subdirectory(examples/c)
     add_subdirectory(examples/cpp)
     add_subdirectory(examples/cpp-partition-routing)

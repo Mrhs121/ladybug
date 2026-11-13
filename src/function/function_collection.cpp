@@ -1,5 +1,9 @@
 #include "function/function_collection.h"
 
+#ifdef LBUG_ICEBERG_MAPPING
+#include "storage/iceberg/iceberg_mapping.h"
+#endif
+
 #include "function/aggregate/count.h"
 #include "function/aggregate/count_star.h"
 #include "function/aggregate/histogram.h"
@@ -229,6 +233,9 @@ FunctionCollection* FunctionCollection::getFunctions() {
         AGGREGATE_FUNCTION(AggregateHistogramFunction),
 
         // Table functions
+#ifdef LBUG_ICEBERG_MAPPING
+        TABLE_FUNCTION(iceberg::RefreshCSR),
+#endif
         TABLE_FUNCTION(CurrentSettingFunction), TABLE_FUNCTION(CatalogVersionFunction),
         TABLE_FUNCTION(DBVersionFunction), TABLE_FUNCTION(StorageVersionFunction),
         TABLE_FUNCTION(ShowTablesFunction), TABLE_FUNCTION(ShowGraphsFunction),

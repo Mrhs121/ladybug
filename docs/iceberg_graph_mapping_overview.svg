@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="484" viewBox="0 0 1120 484" role="img" aria-labelledby="title desc" lang="zh-CN">
+  <title id="title">从原始 Iceberg 订单找到共同买家</title>
+  <desc id="desc">订单 10001 和 10002 分别把用户 Jo 和 Lin 连到商品 Pen。lbug 主库登记映射，独立索引保存两个方向的邻接。查询从 Jo 找到 Pen，再反向找到 Lin，姓名和金额等属性来自同一组 Iceberg 快照。订单先于端点到达时先登记待补，到齐后在原索引中补边。当前由查询或显式刷新触发。</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M1 1L8 5L1 9" fill="none" stroke="#387766" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <marker id="arrow-blue" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M1 1L8 5L1 9" fill="none" stroke="#456d96" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <style>
+      text {font-family:"PingFang SC","Noto Sans CJK SC","Microsoft YaHei",sans-serif; fill:#172e38}
+      .title {font-size:28px; font-weight:600}
+      .heading {font-size:23px; font-weight:600}
+      .body {font-size:18px}
+      .small {font-size:16px; fill:#405766}
+      .mono {font-family:"SFMono-Regular",Menlo,Consolas,monospace; font-size:17px}
+      .hint {font-size:15px; fill:#345e52}
+      .name {font-size:18px; font-weight:600; text-anchor:middle}
+      .id {font-size:15px; text-anchor:middle; fill:#405766}
+      .edge {fill:none; stroke:#387766; stroke-width:2; marker-end:url(#arrow)}
+      .attr {fill:none; stroke:#456d96; stroke-width:2; marker-end:url(#arrow-blue)}
+      .rule {stroke:#c6d6da; stroke-width:1}
+    </style>
+  </defs>
+
+  <rect width="1120" height="484" fill="#fff"/>
+  <text x="26" y="41" class="title">从原始订单找到共同买家</text>
+
+  <!-- The lake holds the source of truth. Only keys feed the adjacency index. -->
+  <rect x="26" y="68" width="288" height="239" rx="12" fill="#f0f5fa" stroke="#c9d9e6"/>
+  <text x="46" y="108" class="heading">Iceberg 原始表</text>
+  <line x1="46" y1="124" x2="294" y2="124" class="rule"/>
+  <text x="46" y="156" class="mono">users</text>
+  <text x="146" y="156" class="body">12 Jo、42 Lin</text>
+  <text x="46" y="194" class="mono">products</text>
+  <text x="146" y="194" class="body">103 Pen</text>
+  <text x="46" y="232" class="mono">orders</text>
+  <text x="146" y="232" class="body">10001、10002</text>
+  <text x="46" y="283" class="small">原表保存姓名、商品名和金额</text>
+
+  <!-- Each original order represents one edge, traversable in both directions. -->
+  <rect x="370" y="68" width="372" height="239" rx="12" fill="#edf6f2" stroke="#c4dbcf"/>
+  <text x="391" y="108" class="heading">lbug 图映射</text>
+  <line x1="391" y1="124" x2="721" y2="124" class="rule"/>
+  <text x="391" y="155" class="mono">graph.db</text>
+  <text x="721" y="155" text-anchor="end" class="small">映射定义</text>
+  <text x="391" y="183" class="body">用户和商品是顶点，订单是购买关系</text>
+  <line x1="391" y1="200" x2="721" y2="200" class="rule"/>
+  <text x="391" y="231" class="mono">graph.db.csr.db</text>
+  <text x="721" y="231" text-anchor="end" class="small">双向邻接索引</text>
+  <text x="391" y="260" class="body">由用户找商品，也能由商品找买家</text>
+  <text x="391" y="285" class="small">保存顶点编号、订单键和版本</text>
+
+  <path d="M316 208H362" class="edge"/>
+  <text x="342" y="190" text-anchor="middle" class="hint">主外键</text>
+
+  <!-- Arrowheads point to the product on both purchases; the second hop is reversed. -->
+  <rect x="798" y="68" width="296" height="239" rx="12" fill="#faf8f3" stroke="#dedacd"/>
+  <text x="817" y="108" class="heading">应用的两跳查询</text>
+  <line x1="817" y1="124" x2="1074" y2="124" class="rule"/>
+  <text x="892" y="166" class="id">10001</text>
+  <text x="998" y="166" class="id">10002</text>
+  <circle cx="843" cy="199" r="24" fill="#fff" stroke="#849d94" stroke-width="1.5"/>
+  <circle cx="946" cy="199" r="24" fill="#fff" stroke="#849d94" stroke-width="1.5"/>
+  <circle cx="1049" cy="199" r="24" fill="#daeee1" stroke="#548a6a" stroke-width="1.5"/>
+  <path d="M869 199H918" class="edge"/>
+  <path d="M1023 199H974" class="edge"/>
+  <text x="843" y="205" class="name">Jo</text>
+  <text x="946" y="205" class="name">Pen</text>
+  <text x="1049" y="205" class="name">Lin</text>
+  <text x="843" y="246" class="id">用户 12</text>
+  <text x="946" y="246" class="id">商品 103</text>
+  <text x="1049" y="246" class="id">用户 42</text>
+  <text x="817" y="283" class="body">从 Jo 出发，返回共同买家 Lin</text>
+
+  <path d="M744 208H790" class="edge"/>
+  <text x="770" y="190" text-anchor="middle" class="hint">遍历</text>
+  <path d="M166 307V335Q166 345 176 345H944Q954 345 954 335V311" class="attr"/>
+  <rect x="381" y="328" width="358" height="31" rx="4" fill="#fff"/>
+  <text x="560" y="351" text-anchor="middle" class="body" style="fill:#385b82">lbug 从同一组湖表快照读取业务属性</text>
+
+  <!-- Visibility after independent lake commits. -->
+  <rect x="26" y="378" width="1068" height="89" rx="10" fill="#f4f7f6"/>
+  <text x="46" y="406" class="body" font-weight="600">新订单何时可查</text>
+  <text x="1072" y="406" text-anchor="end" class="small">当前由查询或显式刷新触发 · Nexus CDC 留待下一阶段</text>
+  <text x="46" y="444" class="body">订单先到</text>
+  <path d="M145 438H192" class="edge"/>
+  <text x="212" y="444" class="body">登记待补订单</text>
+  <path d="M343 438H390" class="edge"/>
+  <text x="411" y="444" class="body">用户、商品到齐</text>
+  <path d="M560 438H607" class="edge"/>
+  <text x="628" y="444" class="body">在原索引中补边</text>
+  <path d="M778 438H825" class="edge"/>
+  <text x="848" y="444" class="body">原连接的新事务可见</text>
+</svg>

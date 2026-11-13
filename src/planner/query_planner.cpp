@@ -1,4 +1,5 @@
 #include "binder/query/bound_regular_query.h"
+#include "extension/planner_extension.h"
 #include "planner/operator/logical_projection.h"
 #include "planner/operator/logical_union.h"
 #include "planner/planner.h"
@@ -11,6 +12,16 @@ namespace planner {
 
 LogicalPlan Planner::planQuery(const BoundStatement& boundStatement) {
     auto& regularQuery = boundStatement.constCast<BoundRegularQuery>();
+    for (auto* extension : plannerExtensions) {
+        if (auto* queryPlanner = dynamic_cast<extension::QueryPlannerExtension*>(extension)) {
+            if (auto op = queryPlanner->tryPlanQuery(regularQuery, *clientContext)) {
+                op->computeFactorizedSchema();
+                LogicalPlan plan;
+                plan.setLastOperator(std::move(op));
+                return plan;
+            }
+        }
+    }
     if (regularQuery.getNumSingleQueries() == 1) {
         return planSingleQuery(*regularQuery.getSingleQuery(0));
     }

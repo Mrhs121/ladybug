@@ -66,6 +66,20 @@ common::Value ThreadsSetting::getSetting(const ClientContext* context) {
     return common::Value(context->getClientConfig()->numThreads);
 }
 
+#ifdef LBUG_ICEBERG_MAPPING
+void IcebergScanThreadsSetting::setContext(ClientContext* context, const common::Value& parameter) {
+    parameter.validateType(inputType);
+    if (parameter.isNull() || parameter.getValue<int32_t>() < 1) {
+        throw common::RuntimeException{"iceberg_scan_threads must be a positive integer."};
+    }
+    context->getClientConfigUnsafe()->icebergScanThreads = parameter.getValue<int32_t>();
+}
+
+common::Value IcebergScanThreadsSetting::getSetting(const ClientContext* context) {
+    return common::Value(context->getClientConfig()->icebergScanThreads);
+}
+#endif
+
 void WarningLimitSetting::setContext(ClientContext* context, const common::Value& parameter) {
     parameter.validateType(inputType);
     context->getClientConfigUnsafe()->warningLimit = parameter.getValue<uint64_t>();

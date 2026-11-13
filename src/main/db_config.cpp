@@ -13,6 +13,9 @@ namespace main {
     {_PARAM::name, _PARAM::inputType, _PARAM::setContext, _PARAM::getSetting}
 
 static ConfigurationOption options[] = { // NOLINT(cert-err58-cpp):
+#ifdef LBUG_ICEBERG_MAPPING
+    GET_CONFIGURATION(IcebergScanThreadsSetting),
+#endif
     GET_CONFIGURATION(ThreadsSetting), GET_CONFIGURATION(TimeoutSetting),
     GET_CONFIGURATION(WarningLimitSetting), GET_CONFIGURATION(VarLengthExtendMaxDepthSetting),
     GET_CONFIGURATION(SparseFrontierThresholdSetting), GET_CONFIGURATION(EnableSemiMaskSetting),

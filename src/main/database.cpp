@@ -1,5 +1,9 @@
 #include "main/database.h"
 
+#ifdef LBUG_ICEBERG_MAPPING
+#include "storage/iceberg/iceberg_mapping.h"
+#endif
+
 #include "extension/binder_extension.h"
 #include "extension/extension_manager.h"
 #include "extension/mapper_extension.h"
@@ -187,6 +191,9 @@ void Database::initMembers(std::string_view dbPath, construct_bm_func_t initBmFu
     databaseManager = std::make_unique<DatabaseManager>();
 
     extensionManager = std::make_unique<extension::ExtensionManager>();
+#ifdef LBUG_ICEBERG_MAPPING
+    iceberg::registerIcebergMapping(*this);
+#endif
     dbLifeCycleManager = std::make_shared<DatabaseLifeCycleManager>();
     if (clientContext.isInMemory()) {
         storageManager->initDataFileHandle(vfs.get(), &clientContext);
